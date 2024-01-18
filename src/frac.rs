@@ -35,7 +35,7 @@ pub const FLOAT_PARSE_TOLERANCE: f64 = 0.05 / DENOM as f64;
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd, Default)]
 pub struct Frac {
     /// The numerator.
-    numerator: BaseInt,
+    pub numerator: BaseInt,
 }
 
 #[derive(Debug, Clone, Error)]
@@ -66,6 +66,33 @@ impl Frac {
         } else {
             Ok(Self::new_with_numerator(float_num.round() as BaseInt))
         }
+    }
+
+    /// Attempts to read a float, panicking if the float is invalid. See [`try_from_float`] for specifics.
+    pub fn from_f64_unchecked(x: f64) -> Self {
+        Self::try_from_float(x).unwrap()
+    }
+
+    pub const ONE_HALF: Frac = Frac {
+        numerator: DENOM / 2,
+    };
+
+    pub const ONE: Frac = Frac { numerator: DENOM };
+
+    pub const ZERO: Frac = Frac { numerator: 0 };
+
+    pub const NEG_ONE: Frac = Frac { numerator: -DENOM };
+}
+
+impl From<Frac> for f64 {
+    fn from(value: Frac) -> Self {
+        (value.numerator as f64) / DENOM as f64
+    }
+}
+
+impl From<Frac> for f32 {
+    fn from(value: Frac) -> Self {
+        (value.numerator as f32) / DENOM as f32
     }
 }
 
@@ -740,12 +767,6 @@ impl<T: PrimInt> Rem<T> for Frac {
 
     fn rem(self, rhs: T) -> Self::Output {
         self % Self::from(rhs)
-    }
-}
-
-impl From<Frac> for f64 {
-    fn from(x: Frac) -> Self {
-        x.numerator as f64 / DENOM as f64
     }
 }
 
