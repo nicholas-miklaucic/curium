@@ -1,6 +1,6 @@
 //! Defines the symmetry operations in 3D space.
 
-use std::{convert::identity, str::FromStr};
+use std::str::FromStr;
 
 use nalgebra::{Matrix3, Matrix3x4, Matrix4, RowVector4, Vector3};
 use thiserror::Error;

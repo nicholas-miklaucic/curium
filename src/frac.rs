@@ -32,7 +32,7 @@ pub const FLOAT_PARSE_TOLERANCE: f64 = 0.05 / DENOM as f64;
 
 /// A fraction with a hardcoded denominator [`DENOM`]. Used to ensure numerical stability and
 /// eliminate rounding errors.
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd, Default)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd, Default)]
 pub struct Frac {
     /// The numerator.
     pub numerator: BaseInt,
@@ -52,7 +52,7 @@ pub enum FracError {
 
 impl Frac {
     /// Creates a new `Frac` with the given numerator.
-    pub fn new_with_numerator(numerator: BaseInt) -> Self {
+    pub const fn new_with_numerator(numerator: BaseInt) -> Self {
         Self { numerator }
     }
 
@@ -801,6 +801,12 @@ static UNICODE_SPECIAL_CASES: phf::Map<BaseInt, &'static str> = phf_map! {
     21i16 => "\u{215E}",
     24i16 => "1",
 };
+
+impl std::fmt::Debug for Frac {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "frac!({:02}/{})", self.numerator, DENOM)
+    }
+}
 
 impl Display for Frac {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

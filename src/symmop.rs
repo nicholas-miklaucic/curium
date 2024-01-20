@@ -1,12 +1,11 @@
 //! A symmetry operation in 3D space, considered geometrically. Acts on 3D space as an [`Isometry`],
 //! but specifically considers the subgroup of isometries that occurs in crystal space groups.
 
-use std::{convert::identity, iter::successors};
+use std::f64::consts::TAU;
+use std::iter::successors;
 
-use nalgebra::{
-    iter, matrix, zero, Const, Matrix3, Matrix4, OMatrix, Point3, SMatrix, Vector, Vector3,
-};
-use num_traits::{FromPrimitive, Signed, Zero};
+use nalgebra::{Const, Matrix3, OMatrix, Point3, SMatrix, Vector3};
+use num_traits::Zero;
 use thiserror::Error;
 
 use crate::frac;
@@ -15,28 +14,56 @@ use crate::{
     isometry::Isometry,
 };
 
-/// The axis of rotation.
+/// The axis of rotation. Distinguishes a single point on the line, which is the center of a
+/// potential rotoinversion.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct RotationAxis {
-    pub x: Frac,
-    pub y: Frac,
-    pub z: Frac,
+    origin: Point3<Frac>,
+    // compliant with ISO-80000-2:2019
+    /// Angle with z-axis, as a fraction of a full circle.
+    theta: Frac,
+    /// Angle with x-axis in xy-plane, as a fraction of a full circle.
+    phi: Frac,
 }
 
-impl From<Vector3<Frac>> for RotationAxis {
-    fn from(v: Vector3<Frac>) -> Self {
-        Self {
-            x: v.x,
-            y: v.y,
-            z: v.z,
-        }
+/// Computes the fraction of a full circle rotation needed to rotate the x-axis to align with the
+/// point (x, y).
+fn frac_atan2(x: Frac, y: Frac) -> Frac {
+    let x = x.numerator as f64;
+    let y = y.numerator as f64;
+    let atan2 = y.atan2(x);
+    Frac::from_f64_unchecked(atan2 / TAU)
+}
+
+/// Converts a vector to spherical coordinates, finding the angles theta and phi needed to rotate
+/// the x-axis to align with the vector. Returns 0 for angles that don't matter.
+fn vec_to_spherical(v: Vector3<Frac>) -> (Frac, Frac) {
+    // https://www.wikiwand.com/en/Spherical_coordinate_system#Cartesian_coordinates
+
+    let phi = frac_atan2(v.x, v.y);
+    let fx = f64::from(v.x);
+    let fy = f64::from(v.y);
+    let fz = f64::from(v.z);
+
+    dbg!(fx, fy, fz);
+    dbg!(fx.hypot(fy));
+    dbg!(fx.hypot(fy).atan2(fz).to_degrees());
+    let theta = Frac::from_f64_unchecked(fx.hypot(fy).atan2(fz) / TAU);
+    (theta, phi)
+}
+
+impl RotationAxis {
+    /// Vector oriented as v going through origin.
+    pub fn new(v: Vector3<Frac>, origin: Point3<Frac>) -> Self {
+        let (theta, phi) = vec_to_spherical(v);
+        Self { origin, theta, phi }
     }
 }
 
 /// The kind of rotation: sense and order.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub enum RotationKind {
-    PosTwo,
+    Two,
     PosThree,
     PosFour,
     PosSix,
@@ -48,7 +75,7 @@ pub enum RotationKind {
 impl RotationKind {
     pub fn new(is_ccw: bool, order: usize) -> Self {
         match (is_ccw, order) {
-            (_, 2) => Self::PosTwo,
+            (_, 2) => Self::Two,
             (true, 3) => Self::PosThree,
             (false, 3) => Self::NegThree,
             (true, 4) => Self::PosFour,
@@ -60,14 +87,6 @@ impl RotationKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
-pub struct RotationType {
-    /// The sense and order of the rotation.
-    kind: RotationKind,
-    /// Whether the rotation is proper or improper.
-    is_proper: bool,
-}
-
 /// The amount of translation along the axis of rotation in a screw rotation.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct ScrewOrder {
@@ -77,13 +96,21 @@ pub struct ScrewOrder {
 /// A plane (particularly of reflection.)
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Plane {
-    pub x: Frac,
-    pub y: Frac,
-    pub z: Frac,
-    pub d: Frac,
+    /// Normal vector theta
+    theta: Frac,
+    /// Normal vector phi.
+    phi: Frac,
+    d: Frac,
 }
 
 impl Plane {
+    pub fn from_normal_and_d(n: Vector3<Frac>, d: Frac) -> Self {
+        // this is only important as a normal vector, which introduces ambiguity: the negation of
+        // the normal vector is also a normal vector. We solve this by picking the larger of the two
+        // resultant representations, which should hopefully keep things positive.
+        let (theta, phi) = vec_to_spherical(n).max(vec_to_spherical(n.scale(frac!(-1))));
+        Self { theta, phi, d }
+    }
     pub fn from_basis_and_origin(
         v1: Vector3<Frac>,
         v2: Vector3<Frac>,
@@ -91,17 +118,12 @@ impl Plane {
     ) -> Self {
         let normal = v1.cross(&v2);
         let d = -normal.dot(&origin.coords);
-        Self {
-            x: normal.x,
-            y: normal.y,
-            z: normal.z,
-            d,
-        }
+        Self::from_normal_and_d(normal, d)
     }
 }
 
 /// A symmetry operation. See section 1.2.1 of the International Tables of Crystallography.
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum SymmOp {
     /// The identity.
     Identity,
@@ -109,11 +131,16 @@ pub enum SymmOp {
     Inversion(Point3<Frac>),
     /// A translation.
     Translation(Vector3<Frac>),
-    /// A rotation or rotoinversion, potentially with an additional translation (a screw motion).
-    /// Rotoinversions of order 2 are isomorphic to reflections and should be represented as such.
-    GeneralRotation(RotationAxis, RotationType, Point3<Frac>, Vector3<Frac>),
-    /// A reflection through a plane, with optional glide.
-    Reflection(Plane, Vector3<Frac>),
+    /// A rotation.
+    Rotation(RotationAxis, RotationKind),
+    /// A rotoinversion. Rotoinversions of order 2 are reflections and should be treated as such.
+    Rotoinversion(RotationAxis, RotationKind),
+    /// A screw rotation or rotoinversion. Screw rotoinversions of order 2 are glide reflections.
+    Screw(RotationAxis, RotationKind, bool, ScrewOrder, Vector3<Frac>),
+    /// A reflection through a plane.
+    Reflection(Plane),
+    /// A glide reflection.
+    Glide(Plane, Vector3<Frac>),
 }
 
 impl SymmOp {
@@ -121,14 +148,21 @@ impl SymmOp {
         axis: RotationAxis,
         kind: RotationKind,
         is_proper: bool,
-        center: Point3<Frac>,
         tau: Vector3<Frac>,
     ) -> Self {
-        Self::GeneralRotation(axis, RotationType { kind, is_proper }, center, tau)
+        match (is_proper, tau.is_zero()) {
+            (true, true) => Self::Rotation(axis, kind),
+            (false, true) => Self::Rotoinversion(axis, kind),
+            (proper, false) => Self::Screw(axis, kind, proper, ScrewOrder { order: 1 }, tau),
+        }
     }
 
     pub fn new_generalized_reflection(plane: Plane, tau: Vector3<Frac>) -> Self {
-        Self::Reflection(plane, tau)
+        if tau.is_zero() {
+            Self::Reflection(plane)
+        } else {
+            Self::Glide(plane, tau)
+        }
     }
 }
 
@@ -371,20 +405,18 @@ impl SymmOp {
                 [] => {
                     // single solution: rotoinversion center
                     Ok(Self::new_generalized_rotation(
-                        axis.into(),
+                        RotationAxis::new(axis, center),
                         rot_kind,
                         is_proper,
-                        center,
                         w_l,
                     ))
                 }
                 [_u] => {
                     // single axis: rotation or screw
                     Ok(Self::new_generalized_rotation(
-                        axis.into(),
+                        RotationAxis::new(axis, center),
                         rot_kind,
                         is_proper,
-                        center,
                         w_g,
                     ))
                 }
@@ -497,11 +529,12 @@ mod tests {
 
     #[test]
     fn test_glide() {
-        let iso = Isometry::from_str("-y+3/4, -x+1/4, z+1/4").unwrap();
+        // example 3 from ITA 1.2.2.4
+        let iso = Isometry::from_str("-y + 3/4, -x + 1/4, z + 1/4").unwrap();
         let symm = SymmOp::classify_affine(iso).unwrap();
         assert_eq!(
             symm,
-            SymmOp::Reflection(
+            SymmOp::Glide(
                 Plane::from_basis_and_origin(
                     Vector3::new(frac!(1), frac!(-1), frac!(0)),
                     Vector3::new(frac!(0), frac!(0), frac!(1)),
@@ -512,22 +545,53 @@ mod tests {
         );
     }
 
+    // #[test]
+    // fn test_rotoinversion_2() {
+    //     // example 2 from ITA 1.2.2.4
+    //     let iso = Isometry::from_str("y+1/4, -x+1/4, z+3/4").unwrap();
+    //     let symm = SymmOp::classify_affine(iso).unwrap();
+    //     assert_eq!(
+    //         symm,
+    //         SymmOp::new_generalized_rotation(
+    //             RotationAxis::new(Vector3::z(), Point3::new(frac!(1 / 4), frac!(0), frac!(0))),
+    //             RotationKind::NegFour,
+    //             true,
+    //             Vector3::new(frac!(0), frac!(0), frac!(3 / 4))
+    //         )
+    //     );
+    // }
+
     #[test]
-    fn test_rotoinversion() {
+    fn test_rotation() {
+        // example 1 from ITA 1.2.2.4
         let iso = Isometry::from_str("y+1/4, -x+1/4, z+3/4").unwrap();
         let symm = SymmOp::classify_affine(iso).unwrap();
         assert_eq!(
             symm,
             SymmOp::new_generalized_rotation(
-                RotationAxis {
-                    x: frac!(0),
-                    y: frac!(0),
-                    z: frac!(1)
-                },
+                RotationAxis::new(Vector3::z(), Point3::new(frac!(1 / 4), frac!(0), frac!(0))),
                 RotationKind::NegFour,
                 true,
-                Point3::new(frac!(1 / 4), frac!(0), frac!(0)),
                 Vector3::new(frac!(0), frac!(0), frac!(3 / 4))
+            )
+        );
+    }
+
+    #[test]
+    fn test_rotoinversion() {
+        // example 2 from ITA 1.2.2.4
+        let iso = Isometry::from_str("y+1/4, -x+1/4, z+3/4").unwrap();
+        let symm = SymmOp::classify_affine(iso).unwrap();
+        assert_eq!(
+            symm,
+            SymmOp::new_generalized_rotation(
+                RotationAxis::new(
+                    Vector3::new(frac!(-1), frac!(1), frac!(-1)),
+                    Point3::new(frac!(-1 / 2), frac!(1), frac!(0))
+                ),
+                RotationKind::PosThree,
+                false,
+                Vector3::new(frac!(0), frac!(1 / 2), frac!(1 / 2))
             )
         );
     }
