@@ -39,7 +39,7 @@ impl Isometry {
     pub fn affine_matrix(&self) -> Matrix4<Frac> {
         let mut mat = Matrix4::identity();
         mat.fixed_view_mut::<3, 3>(0, 0).copy_from(&self.rot);
-        mat.column_part_mut(3, 3).copy_from(&self.tau);
+        mat.fixed_view_mut::<3, 1>(0, 3).copy_from(&self.tau);
         mat
     }
 }
@@ -76,13 +76,14 @@ fn parse_single_var(s: &str) -> Result<RowVector4<Frac>, IsometryError> {
     let err = IsometryError::CoordParse(s.to_owned());
     let mut coef = Err(err.clone());
     let mut ivals = vec![];
-    for (i, var) in vec![(0, "x"), (1, "y"), (2, "z"), (3, "")] {
-        if s.contains(var) {
+    for (i, var) in vec![(0, "x"), (1, "y"), (2, "z"), (3, "v")] {
+        if i == 3 || s.contains(var) {
             coef = coef.or(parse_coef(s.replace(var, "v").as_str()));
             ivals.push(i);
         }
     }
     let i4 = Matrix4::<Frac>::identity();
+    // dbg!(&ivals, s);
     match ivals[..] {
         [i] | [i, 3] => coef.map(|f| i4.row(i).scale(f)),
         _ => Err(err),
@@ -91,8 +92,12 @@ fn parse_single_var(s: &str) -> Result<RowVector4<Frac>, IsometryError> {
 
 /// Parses a coordinate, e.g., `x - y`, from a String.
 fn parse_coord(s: &str) -> Result<RowVector4<Frac>, IsometryError> {
-    let s_pm = s.replace("-", "+-");
+    let s_pm = s.replace("-", "+-").replace(" ", "");
     let coefs = s_pm.split("+").filter(|s| !s.is_empty());
+    // println!("{:?}", coefs.collect::<Vec<_>>());
+    // let coefs = s_pm.split("+").filter(|s| !s.is_empty());
+    // let vecs = coefs.map(parse_single_var).collect::<Vec<_>>();
+    // dbg!(vecs).into_iter().sum()
     coefs.map(parse_single_var).sum()
 }
 
@@ -110,7 +115,7 @@ impl FromStr for Isometry {
             let m = Matrix3x4::<Frac>::from_rows(&rows[..]);
             Ok(Isometry {
                 rot: m.fixed_view::<3, 3>(0, 0).clone_owned(),
-                tau: m.fixed_view::<3, 1>(0, 3).clone_owned(),
+                tau: m.column(3).clone_owned(),
             })
         }
     }
@@ -118,7 +123,11 @@ impl FromStr for Isometry {
 
 #[cfg(test)]
 mod tests {
+    use nalgebra::matrix;
+
     use super::*;
+    use crate::frac;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_identity() {
@@ -148,6 +157,27 @@ mod tests {
             "Parsing failed:\n{}\n{}",
             iso1_p.affine_matrix(),
             iso1.affine_matrix()
+        )
+    }
+
+    #[test]
+    fn test_parse_tau() {
+        let iso_p = Isometry::from_str("-y+3/4, -x+1/4, z+1/4").unwrap();
+        let iso = Isometry::new(
+            matrix![
+                frac!(0), frac!(-1), frac!(0);
+                frac!(-1), frac!(0), frac!(0);
+                frac!(0), frac!(0), frac!(1)
+            ],
+            Vector3::new(frac!(3 / 4), frac!(1 / 4), frac!(1 / 4)),
+        );
+        dbg!(frac!(1 / 4));
+        assert_eq!(
+            iso_p,
+            iso,
+            "Parsing failed:\n{}\n{}",
+            iso_p.affine_matrix(),
+            iso.affine_matrix()
         )
     }
 }

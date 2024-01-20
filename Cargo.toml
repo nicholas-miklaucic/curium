@@ -13,3 +13,6 @@ num-traits = "*"
 simba = "*"
 approx = "*"
 thiserror = "1.0.56"
+
+[dev-dependencies]
+pretty_assertions = "1.4.0"

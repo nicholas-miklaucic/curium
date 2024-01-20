@@ -82,6 +82,8 @@ impl Frac {
     pub const ZERO: Frac = Frac { numerator: 0 };
 
     pub const NEG_ONE: Frac = Frac { numerator: -DENOM };
+
+    pub const DENOM: BaseInt = DENOM;
 }
 
 impl From<Frac> for f64 {
@@ -158,15 +160,15 @@ impl Mul for Frac {
     /// Note: this can panic because this result may not be representable using the same
     /// denominator. Use this for multiplying by e.g., -1 or 2, but 5/24 x 7/24 will panic.
     fn mul(self, rhs: Self) -> Self::Output {
-        let prod = self.numerator * rhs.numerator;
+        let prod = self.numerator as i64 * rhs.numerator as i64;
         assert!(
-            prod % DENOM == 0,
+            prod % DENOM as i64 == 0,
             "Cannot represent {} * {} with denominator {}",
             self,
             rhs,
             DENOM
         );
-        Self::new_with_numerator(self.numerator * rhs.numerator / DENOM)
+        Self::new_with_numerator((prod / DENOM as i64) as BaseInt)
     }
 }
 
@@ -811,12 +813,18 @@ impl Display for Frac {
                 let x = gcd(abs_num, DENOM);
                 let new_p = abs_num / x;
                 let new_q = DENOM / x;
-                format!("{}/{}", new_p, new_q)
+                if new_q == 1 {
+                    format!("{}", new_p)
+                } else {
+                    format!("{}/{}", new_p, new_q)
+                }
             });
 
         let prefix = if self.numerator < 0 {
             if !frac.contains('/') {
-                "\u{0305}" // combining overline
+                // blocked by nalgebra not handling this correctly
+                // "\u{0305}" // combining overline
+                "−" // minus
             } else {
                 "−" // minus
             }
@@ -828,9 +836,43 @@ impl Display for Frac {
     }
 }
 
+#[macro_export]
+macro_rules! frac {
+    ($num:literal / $denom:expr) => {{
+        let d = $denom;
+        let n = $num;
+
+        // n / d = x / DENOM
+        // DENOM * n / d = x
+        if (Frac::DENOM * n) % d == 0 {
+            Frac::new_with_numerator((Frac::DENOM * n) / d)
+        } else {
+            panic!(
+                "Invalid fraction: {}/{} cannot be represented as n/{}",
+                n,
+                d,
+                Frac::DENOM
+            )
+        }
+    }};
+    ($num:expr) => {
+        Frac::new_with_numerator(($num) * Frac::DENOM)
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_macro() {
+        assert_eq!(Frac::new_with_numerator(4), frac!(1 / 6));
+        assert_eq!(Frac::new_with_numerator(48), frac!(2));
+        assert_eq!(Frac::new_with_numerator(4), frac!(1 / 2 + 4));
+        assert_eq!(Frac::new_with_numerator(3), frac!(10 / 2.pow(3) * 10));
+        assert_eq!(Frac::new_with_numerator(6), frac!(1 / 4));
+    }
 
     #[test]
     fn test_gcd() {
