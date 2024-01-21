@@ -772,16 +772,18 @@ impl<T: PrimInt> Rem<T> for Frac {
     }
 }
 
-const fn gcd(p: BaseInt, q: BaseInt) -> BaseInt {
-    let mut p = p;
-    let mut q = q;
-    while q != 0 {
-        let r = p % q;
-        p = q;
-        q = r;
-    }
+impl Frac {
+    pub const fn gcd(p: BaseInt, q: BaseInt) -> BaseInt {
+        let mut p = p;
+        let mut q = q;
+        while q != 0 {
+            let r = p % q;
+            p = q;
+            q = r;
+        }
 
-    p
+        p
+    }
 }
 
 /// When printing out a fraction, we can make things more compact by only using / when necessary and
@@ -816,7 +818,7 @@ impl Display for Frac {
             .get(&abs_num)
             .map(|&s| s.to_owned())
             .unwrap_or_else(|| {
-                let x = gcd(abs_num, DENOM);
+                let x = Frac::gcd(abs_num, DENOM);
                 let new_p = abs_num / x;
                 let new_q = DENOM / x;
                 if new_q == 1 {
@@ -882,10 +884,10 @@ mod tests {
 
     #[test]
     fn test_gcd() {
-        assert_eq!(gcd(4, 24), 4);
-        assert_eq!(gcd(25, 4), 1);
-        assert_eq!(gcd(25, 10), 5);
-        assert_eq!(gcd(64, 8), 8);
+        assert_eq!(Frac::gcd(4, 24), 4);
+        assert_eq!(Frac::gcd(25, 4), 1);
+        assert_eq!(Frac::gcd(25, 10), 5);
+        assert_eq!(Frac::gcd(64, 8), 8);
     }
 
     #[test]

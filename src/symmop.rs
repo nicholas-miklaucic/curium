@@ -3,9 +3,14 @@
 
 use std::f64::consts::TAU;
 use std::iter::successors;
+use std::ops::SubAssign;
 
-use nalgebra::{Const, Matrix3, OMatrix, Point3, SMatrix, Vector3};
+use nalgebra::{
+    matrix, vector, Const, Matrix3, Matrix4, OMatrix, Point3, Rotation3, SMatrix, Translation3,
+    Unit, Vector3,
+};
 use num_traits::Zero;
+use simba::scalar::{SubsetOf, SupersetOf};
 use thiserror::Error;
 
 use crate::frac;
@@ -19,44 +24,39 @@ use crate::{
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct RotationAxis {
     origin: Point3<Frac>,
-    // compliant with ISO-80000-2:2019
-    /// Angle with z-axis, as a fraction of a full circle.
-    theta: Frac,
-    /// Angle with x-axis in xy-plane, as a fraction of a full circle.
-    phi: Frac,
+    v: Vector3<Frac>,
 }
 
-/// Computes the fraction of a full circle rotation needed to rotate the x-axis to align with the
-/// point (x, y).
-fn frac_atan2(x: Frac, y: Frac) -> Frac {
-    let x = x.numerator as f64;
-    let y = y.numerator as f64;
-    let atan2 = y.atan2(x);
-    Frac::from_f64_unchecked(atan2 / TAU)
-}
+/// Reduces coefs by a common denominator and scales so the first nonzero coordinate is positive.
+fn reduce_coefs(v: &Vector3<Frac>) -> (Vector3<Frac>, i16) {
+    let nonzero_elems: Vec<BaseInt> = v
+        .iter()
+        .map(|e| if e.is_zero() { None } else { Some(e.numerator) })
+        .flatten()
+        .collect();
+    let scaling_factor = match nonzero_elems[..] {
+        [] => 0,
+        [i1] => i1,
+        [i1, i2] => Frac::gcd(i1.abs(), i2.abs()) * i1.signum(),
+        [i1, i2, i3] => Frac::gcd(Frac::gcd(i1.abs(), i2.abs()), i3.abs()) * i1.signum(),
+        _ => panic!("Should be unreachable"),
+    };
 
-/// Converts a vector to spherical coordinates, finding the angles theta and phi needed to rotate
-/// the x-axis to align with the vector. Returns 0 for angles that don't matter.
-fn vec_to_spherical(v: Vector3<Frac>) -> (Frac, Frac) {
-    // https://www.wikiwand.com/en/Spherical_coordinate_system#Cartesian_coordinates
-
-    let phi = frac_atan2(v.x, v.y);
-    let fx = f64::from(v.x);
-    let fy = f64::from(v.y);
-    let fz = f64::from(v.z);
-
-    dbg!(fx, fy, fz);
-    dbg!(fx.hypot(fy));
-    dbg!(fx.hypot(fy).atan2(fz).to_degrees());
-    let theta = Frac::from_f64_unchecked(fx.hypot(fy).atan2(fz) / TAU);
-    (theta, phi)
+    (v.map(|e| e / frac!(scaling_factor)), scaling_factor)
 }
 
 impl RotationAxis {
     /// Vector oriented as v going through origin.
     pub fn new(v: Vector3<Frac>, origin: Point3<Frac>) -> Self {
-        let (theta, phi) = vec_to_spherical(v);
-        Self { origin, theta, phi }
+        Self {
+            origin,
+            v: reduce_coefs(&v).0,
+        }
+    }
+
+    /// Return representation as origin and vector.
+    pub fn as_origin_vector(&self) -> (Point3<Frac>, Vector3<Frac>) {
+        (self.origin, self.v)
     }
 }
 
@@ -85,6 +85,18 @@ impl RotationKind {
             _ => panic!("Invalid sense and order: {}, {}", is_ccw, order),
         }
     }
+
+    pub fn as_frac(&self) -> Frac {
+        match &self {
+            RotationKind::Two => frac!(1 / 2),
+            RotationKind::PosThree => frac!(1 / 3),
+            RotationKind::PosFour => frac!(1 / 4),
+            RotationKind::PosSix => frac!(1 / 6),
+            RotationKind::NegThree => frac!(-1 / 3),
+            RotationKind::NegFour => frac!(-1 / 4),
+            RotationKind::NegSix => frac!(-1 / 6),
+        }
+    }
 }
 
 /// The amount of translation along the axis of rotation in a screw rotation.
@@ -93,23 +105,27 @@ pub struct ScrewOrder {
     order: BaseInt,
 }
 
+impl ScrewOrder {
+    pub fn new_order(order: BaseInt) -> Self {
+        Self { order }
+    }
+}
+
 /// A plane (particularly of reflection.)
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Plane {
-    /// Normal vector theta
-    theta: Frac,
-    /// Normal vector phi.
-    phi: Frac,
+    n: Vector3<Frac>,
     d: Frac,
 }
 
 impl Plane {
     pub fn from_normal_and_d(n: Vector3<Frac>, d: Frac) -> Self {
-        // this is only important as a normal vector, which introduces ambiguity: the negation of
-        // the normal vector is also a normal vector. We solve this by picking the larger of the two
-        // resultant representations, which should hopefully keep things positive.
-        let (theta, phi) = vec_to_spherical(n).max(vec_to_spherical(n.scale(frac!(-1))));
-        Self { theta, phi, d }
+        let (_n_scaled, scale) = reduce_coefs(&n);
+        let d_scale = (Frac::gcd(scale.abs(), d.numerator.abs()) * scale.signum()).into();
+        Self {
+            n: n.map(|e| e / d_scale),
+            d: d / d_scale,
+        }
     }
     pub fn from_basis_and_origin(
         v1: Vector3<Frac>,
@@ -119,6 +135,28 @@ impl Plane {
         let normal = v1.cross(&v2);
         let d = -normal.dot(&origin.coords);
         Self::from_normal_and_d(normal, d)
+    }
+
+    pub fn reflection_matrix(&self) -> Matrix4<f64> {
+        // for now, use f64
+
+        // https://www.wikiwand.com/en/Transformation_matrix#Reflection_2
+        let fl_n: Vector3<f64> = self.n.to_subset_unchecked();
+        let fl_n_norm = fl_n.norm();
+        let &[a, b, c] = fl_n.scale(1. / fl_n_norm).as_slice() else {
+            panic!()
+        };
+        let d: f64 = self.d.to_subset_unchecked();
+        let d = d / fl_n_norm;
+        let abcd = [a, b, c, d];
+        Matrix4::from_fn(|i, j| {
+            let entry = if i == j { 1. } else { 0. };
+            if i == 3 {
+                entry
+            } else {
+                entry - 2. * abcd[i] * abcd[j]
+            }
+        })
     }
 }
 
@@ -164,12 +202,138 @@ impl SymmOp {
             Self::Glide(plane, tau)
         }
     }
+
+    /// Gets the isometry corresponding to the geometric operation.
+    pub fn to_iso(&self) -> Isometry {
+        match &self {
+            SymmOp::Identity => Isometry::identity(),
+            SymmOp::Inversion(tau) => Isometry::new_rot_tau(
+                Matrix3::identity().scale(frac!(-1)),
+                matrix![
+                    tau.x;
+                    tau.y;
+                    tau.z;
+                ],
+            ),
+            SymmOp::Translation(tau) => {
+                Isometry::new_rot_tau(Matrix3::identity(), tau.clone_owned())
+            }
+            SymmOp::Rotation(axis, kind)
+            | SymmOp::Rotoinversion(axis, kind)
+            | SymmOp::Screw(axis, kind, _, _, _) => {
+                // I am going to 100% punt on doing this without numerical instability.
+                let th = f64::from(kind.as_frac()) * TAU;
+                let (o, u) = axis.as_origin_vector();
+                let o: Point3<f64> = o.to_subset_unchecked();
+                let u: Vector3<f64> = u.to_subset_unchecked();
+                let u = Unit::new_normalize(u);
+                let rot = Matrix4::from_axis_angle(&u, th);
+                let inv_mat: Matrix4<f64> = Matrix4::from_partial_diagonal(&[-1., -1., -1., 1.]);
+                let trans = Translation3::new(o.x, o.y, o.z).to_homogeneous();
+                let trans_inv = Translation3::new(-o.x, -o.y, -o.z).to_homogeneous();
+                let affine = match self {
+                    SymmOp::Rotation(_, _) => trans * rot * trans_inv,
+                    SymmOp::Rotoinversion(_, _) => trans * inv_mat * rot * trans_inv,
+                    SymmOp::Screw(_, _, is_proper, _order, tau) => {
+                        let roto_inv = if *is_proper { rot } else { inv_mat * rot };
+                        let tau_m: Vector3<f64> = tau.to_subset_unchecked();
+                        Translation3::new(tau_m.x, tau_m.y, tau_m.z).to_homogeneous()
+                            * trans
+                            * roto_inv
+                            * trans_inv
+                    }
+                    _ => panic!(),
+                };
+
+                // moment of truth...
+                let affine_frac = Matrix4::from_iterator(
+                    affine.into_iter().map(|&fl| Frac::from_f64_unchecked(fl)),
+                );
+                affine_frac.try_into().unwrap()
+            }
+            SymmOp::Reflection(plane) => {
+                // moment of truth...
+                let affine_frac = Matrix4::from_iterator(
+                    plane
+                        .reflection_matrix()
+                        .into_iter()
+                        .map(|&fl| Frac::from_f64_unchecked(fl)),
+                );
+                affine_frac.try_into().unwrap()
+            }
+            SymmOp::Glide(plane, tau) => {
+                // moment of truth...
+                let tau_f: Vector3<f64> = tau.to_subset_unchecked();
+                let tau_m = Translation3::new(tau_f.x, tau_f.y, tau_f.z).to_homogeneous();
+                let affine = tau_m * plane.reflection_matrix();
+                // println!(
+                //     "Plane {:?}: {}",
+                //     plane,
+                //     plane
+                //         .reflection_matrix()
+                //         .map(|f| (f * 1000.).round() / 1000.)
+                // );
+                let affine_frac = Matrix4::from_iterator(
+                    affine.into_iter().map(|&fl| Frac::from_f64_unchecked(fl)),
+                );
+                affine_frac.try_into().unwrap()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Error)]
 pub enum SymmOpError {
     #[error("Matrix not symmetry operation: {0:?}")]
     NotSymmetryOperation(Isometry),
+}
+
+/// Applies Gaussian elimination, being careful to keep the answer within `Frac`.
+fn gauss_eliminate(aug: &mut OMatrix<Frac, Const<3>, Const<7>>) {
+    let mut row = 0;
+
+    /// Make (r_elim, c_elim) 0 by subtracting a multiple of row r.
+    fn zero_out(
+        aug: &mut OMatrix<Frac, Const<3>, Const<7>>,
+        r_elim: usize,
+        c_elim: usize,
+        r: usize,
+    ) {
+        if !aug[(r_elim, c_elim)].is_zero() {
+            let factor = aug[(r_elim, c_elim)] / aug[(r, c_elim)];
+            aug.set_row(r_elim, &(aug.row(r_elim) - aug.row(r).scale(factor)));
+        }
+    }
+
+    // only need to eliminate twice
+    for col in 0..2 {
+        // find nonzero entry to put in upper left
+        let mut nonzero_row = row;
+        while nonzero_row < 3 && aug[(nonzero_row, col)].is_zero() {
+            nonzero_row += 1;
+        }
+        if nonzero_row != 3 {
+            aug.swap_rows(row, nonzero_row);
+            // eliminate column from remaining rows
+            for r_elim in (row + 1)..3 {
+                zero_out(aug, r_elim, col, row);
+            }
+            // this row is now in echelon form
+            row += 1;
+        }
+    }
+
+    // back substitution: we don't want to have to worry too much about going out of `Frac` range,
+    // so we aren't going to have the requirement that the diagonal is all-1, but we do want to
+    // eliminate the upper triangle.
+    if !aug[(2, 2)].is_zero() {
+        zero_out(aug, 1, 2, 2);
+        zero_out(aug, 0, 2, 2);
+    }
+
+    if !aug[(1, 1)].is_zero() {
+        zero_out(aug, 0, 1, 1);
+    }
 }
 
 fn det3x3(m: Matrix3<Frac>) -> Frac {
@@ -205,7 +369,9 @@ impl SymmOp {
         // c.f. International Tables of Crystallography, section 1.2.2.4
         // (1)
         // (a) (i) Classify according to determinant of W
-        let det = det3x3(m.rot);
+        let W = m.rot();
+        let w = m.tau();
+        let det = det3x3(W);
         let is_proper = if det == Frac::ONE {
             true
         } else if det == Frac::NEG_ONE {
@@ -214,7 +380,7 @@ impl SymmOp {
             return err;
         };
         // (a) (ii) Classify angle according to trace
-        let tr = m.rot.m11 + m.rot.m22 + m.rot.m33;
+        let tr = W.diagonal().sum();
         let tr_det = tr * det;
         if tr_det.numerator % DENOM != 0 {
             return err;
@@ -239,28 +405,29 @@ impl SymmOp {
             (-rot_type, rot_type + rot_type * (rot_type % 2))
         };
 
+        // println!("tr:{}\ndet:{}\ntype:{}\norder:{}", tr, det, rot_type, order);
+
         if rot_type == 1 {
             // translation or identity, no rotational component
-            if m.tau == Vector3::<Frac>::zeros() {
+            if w == Vector3::<Frac>::zeros() {
                 return Ok(Self::Identity);
             } else {
-                return Ok(Self::Translation(m.tau));
+                return Ok(Self::Translation(w));
             }
         } else if rot_type == -1 {
             // inversion, find center
             // solve for fixed point to find center
             // -p + τ = p
             // p = τ/2
-            return Ok(Self::Inversion(m.tau.scale(Frac::ONE_HALF).into()));
+            return Ok(Self::Inversion(w.scale(Frac::ONE_HALF).into()));
         } else {
             // (b) find rotation axis
 
             // Consider Y(W) = W^(k-1) + W^(k-2) + ... + W + I where k is the order of the rotation.
-            // Note that W Y(W) = I + W^(k-1) + ... + W^2 + W = Y(W), so Y(W) sends anything not
-            // orthogonal to it to the axis. So we can try Y(W) v and optionally try a second v if
-            // we get unlucky and Y(W) v = 0. If we have a rotoinversion, then instead of Y(W) we
-            // have Y(-W).
-            let W = m.rot;
+            // (Just the rotation.) Note that W Y(W) = I + W^(k-1) + ... + W^2 + W = Y(W), so Y(W)
+            // sends anything not orthogonal to it to the axis. So we can try Y(W) v and optionally
+            // try a second v if we get unlucky and Y(W) v = 0. If we have a rotoinversion, then
+            // instead of Y(W) we have Y(-W).
             let k = rot_type.abs();
             let W_abs = W * det;
             let I: Matrix3<Frac> = Matrix3::identity();
@@ -268,60 +435,74 @@ impl SymmOp {
                 .take(k as usize)
                 .sum();
 
-            // if we make this integral, we make sure the multiplication stays within the Frac field
-            // hopefully we never have to deal with the axis 1, -1, 3
-            let v1 = Vector3::new(frac!(1), frac!(-1), frac!(3));
-            // make sure this isn't parallel to v1 and it'll cover the other cases
-            let v2 = Vector3::new(frac!(1), frac!(1), frac!(1));
+            // Y(W) is invariant, so any vector that doesn't go to 0 will work. If we pick the
+            // vectors <100>, <010>, and <001> to try, it's basically equivalent to checking each
+            // column and picking the first one that's nonzero.
+            assert!(!Y.is_zero());
 
-            let axis_v1 = Y * v1;
-            let axis: Vector3<Frac> = if axis_v1.is_zero() {
-                // :(
-                Y * v2
+            let axis = (0..3)
+                .map(|c| {
+                    if Y.column(c).abs().sum().is_zero() {
+                        None
+                    } else {
+                        Some(Y.column(c))
+                    }
+                })
+                .flatten()
+                .next()
+                .unwrap()
+                .clone_owned();
+
+            let rot_kind = if order > 2 {
+                // (c) sense of rotation
+
+                // the sense is, where u is the axis, x is some vector not parallel to u, and d = det W
+
+                // | u1 x1 (dWx)1 |
+                // | u2 x2 (dWx)2 |
+                // | u3 x3 (dWx)3 |
+
+                // We can pick x to be one of the basis vectors.
+                let sense: Frac = [Vector3::x(), Vector3::y(), Vector3::z()]
+                    .into_iter()
+                    .map(|x| {
+                        let Z = Matrix3::from_columns(&[axis, x, W_abs * x]);
+                        let z_det = det3x3(Z);
+                        if z_det.is_zero() {
+                            None
+                        } else {
+                            Some(z_det)
+                        }
+                    })
+                    .flatten()
+                    .next()
+                    .expect(format!("{} {}", axis, W).as_str());
+
+                // todo this det is not indicated, but it's the only way I get it to work?
+                let sense = sense * det;
+
+                // println!("Y(±W): {}", Y);
+                // println!(
+                //     "Z: {}",
+                //     matrix![
+                //         axis.x, frac!(0), W_abs.m13;
+                //         axis.y, frac!(0), W_abs.m23;
+                //         axis.z, frac!(1), W_abs.m33
+                //     ]
+                // );
+                // println!("W: {}\naxis: {}\ndet: {}\nsense: {}", W, axis, det, sense);
+
+                let sense = sense.numerator.signum();
+                // this would mean our x logic above failed
+                assert!(sense != 0 || order == 2, "{} is 0???", sense);
+                let is_ccw = sense == 1;
+                Some(RotationKind::new(is_ccw, rot_type.abs() as usize))
             } else {
-                axis_v1
+                // reflection
+                None
             };
-
-            // (c) sense of rotation
-
-            // the sense is, where u is the axis, x is some vector not parallel to u, and d = det W
-
-            // | u1 x1 (dWx)1 |
-            // | u2 x2 (dWx)2 |
-            // | u3 x3 (dWx)3 |
-
-            // We can pick x to be either <1, 0, 0> or <0, 0, 1>, using the second only if the first
-            // is parallel to u. If x is <1, 0, 0>, then Wx is the first column of W, and otherwise
-            // it's the 3rd. We can use Laplace expansion with x, and in either case we have that
-            // the only term has negative sign. If x is <1, 0, 0>, then the determinant is -d(u2 *
-            // W_13 - u3 * W_12), and otherwise it's -d(u1 * W_32 - u2 * W_31). Because we're not
-            // sure if the intermediate products will work, we take an implicit denominator out of
-            // it. We only care about the sign anyway.
-            let sense = if axis[2].is_zero() && axis[1].is_zero() {
-                // parallel to <1, 0, 0>, use <0, 0, 1>
-                det * (axis.y * W.m13.numerator - axis.x * W.m23.numerator)
-            } else {
-                det * (axis.z * W.m21.numerator - axis.y * W.m31.numerator)
-            };
-
-            // println!(
-            //     "Z: {}",
-            //     matrix![
-            //         axis.x, frac!(1), W.m11;
-            //         axis.y, frac!(0), W.m21;
-            //         axis.z, frac!(0), W.m31
-            //     ]
-            // );
-            // println!("W: {}\naxis: {}\ndet: {}", W, axis, det);
-
-            let sense = sense.numerator.signum();
-            // this would mean our x logic above failed
-            assert!(sense != 0 || order == 2, "{} is 0???", sense);
-            let is_ccw = sense == 1;
-            let rot_kind = RotationKind::new(is_ccw, order as usize);
 
             // (2) Analysis of the translation column τ, which they call w
-            let w: Vector3<Frac> = m.tau;
 
             // (a) Consider the combined operation (W, w). Call the order k. We have that (W, w)^k =
             // (I, w^k). w^k/k is therefore the translation component associated with a single
@@ -406,16 +587,16 @@ impl SymmOp {
                     // single solution: rotoinversion center
                     Ok(Self::new_generalized_rotation(
                         RotationAxis::new(axis, center),
-                        rot_kind,
+                        rot_kind.unwrap(),
                         is_proper,
-                        w_l,
+                        w_g,
                     ))
                 }
                 [_u] => {
                     // single axis: rotation or screw
                     Ok(Self::new_generalized_rotation(
                         RotationAxis::new(axis, center),
-                        rot_kind,
+                        rot_kind.unwrap(),
                         is_proper,
                         w_g,
                     ))
@@ -430,54 +611,6 @@ impl SymmOp {
                 _ => Err(SymmOpError::NotSymmetryOperation(m)),
             }
         }
-    }
-}
-
-/// Applies Gaussian elimination, being careful to keep the answer within `Frac`.
-fn gauss_eliminate(aug: &mut OMatrix<Frac, Const<3>, Const<7>>) {
-    let mut row = 0;
-
-    /// Make (r_elim, c_elim) 0 by subtracting a multiple of row r.
-    fn zero_out(
-        aug: &mut OMatrix<Frac, Const<3>, Const<7>>,
-        r_elim: usize,
-        c_elim: usize,
-        r: usize,
-    ) {
-        if !aug[(r_elim, c_elim)].is_zero() {
-            let factor = aug[(r_elim, c_elim)] / aug[(r, c_elim)];
-            aug.set_row(r_elim, &(aug.row(r_elim) - aug.row(r).scale(factor)));
-        }
-    }
-
-    // only need to eliminate twice
-    for col in 0..2 {
-        // find nonzero entry to put in upper left
-        let mut nonzero_row = row;
-        while nonzero_row < 3 && aug[(nonzero_row, col)].is_zero() {
-            nonzero_row += 1;
-        }
-        if nonzero_row != 3 {
-            aug.swap_rows(row, nonzero_row);
-            // eliminate column from remaining rows
-            for r_elim in (row + 1)..3 {
-                zero_out(aug, r_elim, col, row);
-            }
-            // this row is now in echelon form
-            row += 1;
-        }
-    }
-
-    // back substitution: we don't want to have to worry too much about going out of `Frac` range,
-    // so we aren't going to have the requirement that the diagonal is all-1, but we do want to
-    // eliminate the upper triangle.
-    if !aug[(2, 2)].is_zero() {
-        zero_out(aug, 1, 2, 2);
-        zero_out(aug, 0, 2, 2);
-    }
-
-    if !aug[(1, 1)].is_zero() {
-        zero_out(aug, 0, 1, 1);
     }
 }
 
@@ -532,68 +665,69 @@ mod tests {
         // example 3 from ITA 1.2.2.4
         let iso = Isometry::from_str("-y + 3/4, -x + 1/4, z + 1/4").unwrap();
         let symm = SymmOp::classify_affine(iso).unwrap();
-        assert_eq!(
-            symm,
-            SymmOp::Glide(
-                Plane::from_basis_and_origin(
-                    Vector3::new(frac!(1), frac!(-1), frac!(0)),
-                    Vector3::new(frac!(0), frac!(0), frac!(1)),
-                    Point3::new(frac!(1 / 2), frac!(0), frac!(0))
-                ),
-                Vector3::new(frac!(1 / 4), frac!(-1 / 4), frac!(1 / 4))
-            )
+        let ans = SymmOp::Glide(
+            Plane::from_basis_and_origin(
+                Vector3::new(frac!(1), frac!(-1), frac!(0)),
+                Vector3::new(frac!(0), frac!(0), frac!(1)),
+                Point3::new(frac!(0), frac!(-1 / 2), frac!(-1 / 2)),
+            ),
+            Vector3::new(frac!(1 / 4), frac!(-1 / 4), frac!(1 / 4)),
         );
-    }
 
-    // #[test]
-    // fn test_rotoinversion_2() {
-    //     // example 2 from ITA 1.2.2.4
-    //     let iso = Isometry::from_str("y+1/4, -x+1/4, z+3/4").unwrap();
-    //     let symm = SymmOp::classify_affine(iso).unwrap();
-    //     assert_eq!(
-    //         symm,
-    //         SymmOp::new_generalized_rotation(
-    //             RotationAxis::new(Vector3::z(), Point3::new(frac!(1 / 4), frac!(0), frac!(0))),
-    //             RotationKind::NegFour,
-    //             true,
-    //             Vector3::new(frac!(0), frac!(0), frac!(3 / 4))
-    //         )
-    //     );
-    // }
+        assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
+        assert_eq!(
+            symm.to_iso(),
+            ans.to_iso(),
+            "{}\n{}",
+            symm.to_iso().mat(),
+            ans.to_iso().mat()
+        )
+    }
 
     #[test]
     fn test_rotation() {
         // example 1 from ITA 1.2.2.4
         let iso = Isometry::from_str("y+1/4, -x+1/4, z+3/4").unwrap();
         let symm = SymmOp::classify_affine(iso).unwrap();
-        assert_eq!(
-            symm,
-            SymmOp::new_generalized_rotation(
-                RotationAxis::new(Vector3::z(), Point3::new(frac!(1 / 4), frac!(0), frac!(0))),
-                RotationKind::NegFour,
-                true,
-                Vector3::new(frac!(0), frac!(0), frac!(3 / 4))
-            )
+        let ans = SymmOp::new_generalized_rotation(
+            RotationAxis::new(Vector3::z(), Point3::new(frac!(-1 / 4), frac!(0), frac!(0))),
+            RotationKind::NegFour,
+            true,
+            Vector3::new(frac!(0), frac!(0), frac!(3 / 4)),
         );
+
+        assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
+        assert_eq!(
+            symm.to_iso(),
+            ans.to_iso(),
+            "{}\n{}",
+            symm.to_iso().mat(),
+            ans.to_iso().mat()
+        )
     }
 
     #[test]
     fn test_rotoinversion() {
         // example 2 from ITA 1.2.2.4
-        let iso = Isometry::from_str("y+1/4, -x+1/4, z+3/4").unwrap();
+        let iso = Isometry::from_str("-z+1/2, x+1/2, y").unwrap();
         let symm = SymmOp::classify_affine(iso).unwrap();
-        assert_eq!(
-            symm,
-            SymmOp::new_generalized_rotation(
-                RotationAxis::new(
-                    Vector3::new(frac!(-1), frac!(1), frac!(-1)),
-                    Point3::new(frac!(-1 / 2), frac!(1), frac!(0))
-                ),
-                RotationKind::PosThree,
-                false,
-                Vector3::new(frac!(0), frac!(1 / 2), frac!(1 / 2))
-            )
+        let ans = SymmOp::new_generalized_rotation(
+            RotationAxis::new(
+                Vector3::new(frac!(-1), frac!(1), frac!(-1)),
+                Point3::new(frac!(0), frac!(-1 / 2), frac!(-1 / 2)),
+            ),
+            RotationKind::PosThree,
+            false,
+            Vector3::zero(),
         );
+        assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
+        assert_eq!(
+            symm.to_iso(),
+            ans.to_iso(),
+            "{}\n{}",
+            symm.to_iso().mat(),
+            ans.to_iso().mat()
+        )
     }
 
     #[test]
@@ -605,8 +739,8 @@ mod tests {
         let mut aug2 = aug1.clone_owned();
 
         gauss_eliminate(&mut aug2);
-        println!("{}", aug1);
-        println!("{}", aug2);
+        // println!("{}", aug1);
+        // println!("{}", aug2);
         assert!(aug2.fixed_view::<2, 2>(1, 0).lower_triangle().is_zero());
         assert!(aug2.fixed_view::<2, 2>(0, 1).upper_triangle().is_zero());
     }

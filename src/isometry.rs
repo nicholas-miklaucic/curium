@@ -1,8 +1,12 @@
 //! Defines the symmetry operations in 3D space.
 
-use std::str::FromStr;
+use std::{
+    ops::{Div, Mul},
+    str::FromStr,
+};
 
-use nalgebra::{Matrix3, Matrix3x4, Matrix4, RowVector4, Vector3};
+use nalgebra::{Matrix3, Matrix3x4, Matrix4, RowVector4, Translation3, Vector3};
+use simba::scalar::SupersetOf;
 use thiserror::Error;
 
 use crate::frac::Frac;
@@ -18,29 +22,61 @@ pub enum IsometryError {
 /// A symmetry operation in 3D space represented generically.
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub struct Isometry {
-    /// The rotation matrix. Can have determinant 1 or -1.
-    pub rot: Matrix3<Frac>,
-    /// The translation vector.
-    pub tau: Vector3<Frac>,
+    /// The 4x4 affine matrix.
+    m: Matrix4<Frac>,
+}
+
+impl Mul for Isometry {
+    type Output = Self;
+
+    fn mul(self, rhs: Isometry) -> Self::Output {
+        Self::new_affine(self.mat() * rhs.mat())
+    }
 }
 
 impl Isometry {
-    /// Creates a new symmetry operation.
-    pub fn new(rot: Matrix3<Frac>, tau: Vector3<Frac>) -> Self {
-        Self { rot, tau }
+    /// Creates a new symmetry operation from rotation and translation components.
+    pub fn new_rot_tau(rot: Matrix3<Frac>, tau: Vector3<Frac>) -> Self {
+        Self {
+            m: Translation3::new(tau.x, tau.y, tau.z).to_homogeneous() * rot.to_homogeneous(),
+        }
+    }
+
+    /// Creates a new isometry from an affine matrix. Needs to be valid.
+    pub fn new_affine(m: Matrix4<Frac>) -> Self {
+        m.try_into().unwrap()
     }
 
     /// Creates a new identity symmetry operation.
     pub fn identity() -> Self {
-        Self::new(Matrix3::identity(), Vector3::zeros())
+        Self::new_rot_tau(Matrix3::identity(), Vector3::zeros())
     }
 
     /// Returns the affine matrix representing this operation.
-    pub fn affine_matrix(&self) -> Matrix4<Frac> {
-        let mut mat = Matrix4::identity();
-        mat.fixed_view_mut::<3, 3>(0, 0).copy_from(&self.rot);
-        mat.fixed_view_mut::<3, 1>(0, 3).copy_from(&self.tau);
-        mat
+    pub fn mat(&self) -> Matrix4<Frac> {
+        self.m
+    }
+
+    /// Returns the rotation matrix.
+    pub fn rot(&self) -> Matrix3<Frac> {
+        self.m.fixed_view::<3, 3>(0, 0).clone_owned()
+    }
+
+    /// Returns the translation vector.
+    pub fn tau(&self) -> Vector3<Frac> {
+        self.m.fixed_view::<3, 1>(0, 3).clone_owned()
+    }
+}
+
+impl Isometry {
+    pub fn inv(&self) -> Self {
+        // 1.2.2.8 of ITA
+        // we could probably implement Cramer's rule, but meh
+        let float_m: Matrix4<f64> = self.m.to_subset_unchecked();
+        let float_m_inv = float_m.try_inverse().unwrap();
+        let m_inv: Matrix4<Frac> =
+            Matrix4::from_iterator(float_m_inv.iter().map(|&fl| Frac::from_f64_unchecked(fl)));
+        Self::new_affine(m_inv)
     }
 }
 
@@ -52,7 +88,7 @@ impl TryFrom<Matrix4<Frac>> for Isometry {
         if mat.row(3) != Matrix4::identity().row(3) {
             Err(IsometryError::NotHomogenous(mat))
         } else {
-            Ok(Self::new(
+            Ok(Self::new_rot_tau(
                 mat.fixed_view::<3, 3>(0, 0).into_owned(),
                 mat.fixed_view::<3, 1>(0, 3).into_owned(),
             ))
@@ -113,10 +149,10 @@ impl FromStr for Isometry {
             return Err(IsometryError::CoordParse(s.to_owned()));
         } else {
             let m = Matrix3x4::<Frac>::from_rows(&rows[..]);
-            Ok(Isometry {
-                rot: m.fixed_view::<3, 3>(0, 0).clone_owned(),
-                tau: m.column(3).clone_owned(),
-            })
+            Ok(Isometry::new_rot_tau(
+                m.fixed_view::<3, 3>(0, 0).clone_owned(),
+                m.column(3).clone_owned(),
+            ))
         }
     }
 }
@@ -132,8 +168,8 @@ mod tests {
     #[test]
     fn test_identity() {
         let id = Isometry::identity();
-        assert_eq!(id.rot, Matrix3::identity());
-        assert_eq!(id.tau, Vector3::zeros());
+        assert_eq!(id.rot(), Matrix3::identity());
+        assert_eq!(id.tau(), Vector3::zeros());
     }
 
     #[test]
@@ -146,7 +182,7 @@ mod tests {
         let f1 = Frac::ONE;
         let fm1 = Frac::NEG_ONE;
         let f0 = Frac::ZERO;
-        let iso1 = Isometry::new(
+        let iso1 = Isometry::new_rot_tau(
             Matrix3::from_vec(vec![f0, fm1, f0, f1, fm1, Frac::ONE_HALF, f0, f0, f1]).transpose(),
             Vector3::from_vec(vec![f0, f0, Frac::from_f64_unchecked(2. / 3.)]),
         );
@@ -155,15 +191,15 @@ mod tests {
             iso1_p,
             iso1,
             "Parsing failed:\n{}\n{}",
-            iso1_p.affine_matrix(),
-            iso1.affine_matrix()
+            iso1_p.mat(),
+            iso1.mat()
         )
     }
 
     #[test]
     fn test_parse_tau() {
         let iso_p = Isometry::from_str("-y+3/4, -x+1/4, z+1/4").unwrap();
-        let iso = Isometry::new(
+        let iso = Isometry::new_rot_tau(
             matrix![
                 frac!(0), frac!(-1), frac!(0);
                 frac!(-1), frac!(0), frac!(0);
@@ -176,8 +212,8 @@ mod tests {
             iso_p,
             iso,
             "Parsing failed:\n{}\n{}",
-            iso_p.affine_matrix(),
-            iso.affine_matrix()
+            iso_p.mat(),
+            iso.mat()
         )
     }
 }
