@@ -2,15 +2,14 @@
 //! but specifically considers the subgroup of isometries that occurs in crystal space groups.
 
 use std::f64::consts::TAU;
+use std::fmt::Display;
 use std::iter::successors;
 
-
 use nalgebra::{
-    matrix, Const, Matrix3, Matrix4, OMatrix, Point3, SMatrix, Translation3,
-    Unit, Vector3,
+    matrix, Const, Matrix3, Matrix4, OMatrix, Point3, SMatrix, Translation3, Unit, Vector3,
 };
 use num_traits::Zero;
-use simba::scalar::{SupersetOf};
+use simba::scalar::SupersetOf;
 use thiserror::Error;
 
 use crate::frac;
@@ -19,15 +18,93 @@ use crate::{
     isometry::Isometry,
 };
 
+/// A direction, such as in a rotation axis or normal vector.
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
+pub struct Direction {
+    /// The first lattice point from the origin in this direction.
+    pub v: Vector3<i8>,
+}
+
+impl Direction {
+    /// Creates a new Direction from a general vector.
+    pub fn new(vec: Vector3<Frac>) -> Self {
+        /// Computes the GCD between a and b, treating 0 as null.
+        fn recip_gcd(a: BaseInt, b: BaseInt) -> BaseInt {
+            match (a.abs(), b.abs()) {
+                (0, b_abs) => b_abs,
+                (a_abs, 0) => a_abs,
+                (a_abs, b_abs) => Frac::gcd(a_abs, b_abs),
+            }
+        }
+        let nums: Vec<BaseInt> = vec.iter().map(|&f| f.numerator).collect();
+        let scale = nums.clone().into_iter().reduce(recip_gcd).unwrap();
+
+        Self {
+            v: Vector3::new(
+                (nums[0] / scale) as i8,
+                (nums[1] / scale) as i8,
+                (nums[2] / scale) as i8,
+            ),
+        }
+    }
+
+    /// The `Direction` represented as a vector of `Frac`s.
+    pub fn as_vec3(&self) -> Vector3<Frac> {
+        Vector3::new(
+            frac!(self.v.x as i16),
+            frac!(self.v.y as i16),
+            frac!(self.v.z as i16),
+        )
+    }
+
+    /// Returns whether the axis is correctly oriented for ITA conventions.
+    pub fn is_conventionally_oriented(&self) -> bool {
+        // even number of negative signs
+
+        // ????? no idea why, not explained
+
+        let mut num_signs = 0;
+        for i in 0..3 {
+            if self.v[i] < 0 {
+                num_signs += 1;
+            }
+        }
+
+        num_signs % 2 == 0
+    }
+
+    /// Flips the direction.
+    pub fn inv(&self) -> Self {
+        Self {
+            v: Vector3::new(-self.v.x, -self.v.y, -self.v.z),
+        }
+    }
+
+    /// Gets a scaled version of the direction's first lattice vector.
+    pub fn scaled_vec(&self, scale: Frac) -> Vector3<Frac> {
+        self.as_vec3().scale(scale)
+    }
+}
+
+impl Display for Direction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let nums = format!("{}{}{}", self.v.x, self.v.y, self.v.z);
+        let nums = nums.replace('-', "\u{0305}");
+        write!(f, "[{nums}]")
+    }
+}
+
 /// The axis of rotation. Distinguishes a single point on the line, which is the center of a
 /// potential rotoinversion.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct RotationAxis {
-    origin: Point3<Frac>,
-    v: Vector3<Frac>,
+    /// The origin.
+    pub origin: Point3<Frac>,
+    /// The direction of the axis.
+    pub dir: Direction,
 }
 
-/// Reduces coefs by a common denominator and scales so the first nonzero coordinate is positive.
+/// Finds the first lattice point
 fn reduce_coefs(v: &Vector3<Frac>) -> (Vector3<Frac>, i16) {
     let nonzero_elems: Vec<BaseInt> = v
         .iter()
@@ -49,13 +126,26 @@ impl RotationAxis {
     pub fn new(v: Vector3<Frac>, origin: Point3<Frac>) -> Self {
         Self {
             origin,
-            v: reduce_coefs(&v).0,
+            dir: Direction::new(v),
         }
     }
 
     /// Return representation as origin and vector.
     pub fn as_origin_vector(&self) -> (Point3<Frac>, Vector3<Frac>) {
-        (self.origin, self.v)
+        (self.origin, self.dir.as_vec3())
+    }
+
+    /// Returns whether the axis is correctly oriented for ITA conventions.
+    pub fn is_conventionally_oriented(&self) -> bool {
+        self.dir.is_conventionally_oriented()
+    }
+
+    /// Returns an axis going in the other direction. The origin remains unchanged.
+    pub fn inv(&self) -> Self {
+        Self {
+            origin: self.origin,
+            dir: self.dir.inv(),
+        }
     }
 }
 
@@ -96,17 +186,28 @@ impl RotationKind {
             RotationKind::NegSix => frac!(-1 / 6),
         }
     }
-}
 
-/// The amount of translation along the axis of rotation in a screw rotation.
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
-pub struct ScrewOrder {
-    order: BaseInt,
-}
+    /// The inverse direction, switching `Pos` with `Neg`.
+    pub fn inv(&self) -> Self {
+        match &self {
+            Self::Two => Self::Two,
+            Self::PosThree => Self::NegThree,
+            Self::PosFour => Self::NegFour,
+            Self::PosSix => Self::NegSix,
+            Self::NegThree => Self::PosThree,
+            Self::NegFour => Self::PosFour,
+            Self::NegSix => Self::PosSix,
+        }
+    }
 
-impl ScrewOrder {
-    pub fn new_order(order: BaseInt) -> Self {
-        Self { order }
+    /// The order of the rotation.
+    pub fn order(&self) -> BaseInt {
+        match &self {
+            Self::Two => 2,
+            Self::PosThree | Self::NegThree => 3,
+            Self::PosFour | Self::NegFour => 4,
+            Self::PosSix | Self::NegSix => 6,
+        }
     }
 }
 
@@ -159,6 +260,59 @@ impl Plane {
     }
 }
 
+/// A proper rotation around an axis. This should probably not be worked with directly: it's mainly
+/// to reduce code duplication between `SymmOp::Rotation`, `SymmOp::Rotoinversion`, and
+/// `SymmOp::Screw`.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct SimpleRotation {
+    pub axis: RotationAxis,
+    pub kind: RotationKind,
+}
+
+impl SimpleRotation {
+    /// New rotation from axis and kind.
+    pub fn new(axis: RotationAxis, kind: RotationKind) -> Self {
+        Self { axis, kind }
+    }
+
+    /// Flips the axis and kind, which preserves the meaning of the rotation.
+    pub fn as_opposite_axis(&self) -> Self {
+        Self::new(self.axis.inv(), self.kind.inv())
+    }
+}
+
+/// The order of a screw rotation, defined as such: Take the order of the screw operation, up to a
+/// unit cell equivalence. (The order is infinite otherwise.) The screw order is the number of
+/// copies of the direction vector that the point has moved. For example, for a 3-fold rotation, an
+/// order of 1 indicates that the screw is 1/3 of the distance between the point and its symmetric
+/// equivalent in the neighboring unit cell.
+///
+/// In ITA, they generally only consider screws up to translation, so instead of having screws of
+/// negative order they wrap around: a -1 screw in a 6-fold rotation is equivalent to a 5 screw up
+/// to a unit cell. [`SymmOp`] does not assume equivalence up to a unit cell, so negative screw
+/// orders are necessary.
+pub type ScrewOrder = i8;
+
+/// Whether a rotation is `Proper` (determinant 1, preserves orientation) or `Improper` (determinant
+/// -1, flips orientation).
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
+pub enum RotationDirectness {
+    /// A proper rotation.
+    Proper,
+    /// An improper rotation, also called a rotoreflection or rotoinversion.
+    Improper,
+}
+
+impl RotationDirectness {
+    /// The sign of the determimnant: -1 or 1.
+    pub fn det_sign(&self) -> BaseInt {
+        match &self {
+            RotationDirectness::Proper => 1,
+            RotationDirectness::Improper => -1,
+        }
+    }
+}
+
 /// A symmetry operation. See section 1.2.1 of the International Tables of Crystallography.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum SymmOp {
@@ -169,11 +323,11 @@ pub enum SymmOp {
     /// A translation.
     Translation(Vector3<Frac>),
     /// A rotation.
-    Rotation(RotationAxis, RotationKind),
+    Rotation(SimpleRotation),
     /// A rotoinversion. Rotoinversions of order 2 are reflections and should be treated as such.
-    Rotoinversion(RotationAxis, RotationKind),
+    Rotoinversion(SimpleRotation),
     /// A screw rotation or rotoinversion. Screw rotoinversions of order 2 are glide reflections.
-    Screw(RotationAxis, RotationKind, bool, ScrewOrder, Vector3<Frac>),
+    Screw(SimpleRotation, RotationDirectness, ScrewOrder),
     /// A reflection through a plane.
     Reflection(Plane),
     /// A glide reflection.
@@ -181,17 +335,57 @@ pub enum SymmOp {
 }
 
 impl SymmOp {
+    /// Creates a `SymmOp` from a rotation that may or may not be a rotoinversion and may or may not
+    /// have a screw translation.
     pub fn new_generalized_rotation(
         axis: RotationAxis,
         kind: RotationKind,
         is_proper: bool,
         tau: Vector3<Frac>,
     ) -> Self {
-        match (is_proper, tau.is_zero()) {
-            (true, true) => Self::Rotation(axis, kind),
-            (false, true) => Self::Rotoinversion(axis, kind),
-            (proper, false) => Self::Screw(axis, kind, proper, ScrewOrder { order: 1 }, tau),
-        }
+        let rot = SimpleRotation::new(axis, kind);
+        let raw_self = match (is_proper, tau.is_zero()) {
+            (true, true) => Self::Rotation(rot),
+            (false, true) => Self::Rotoinversion(rot),
+            (proper, false) => {
+                let tau = tau.scale(kind.order().into());
+                let full_tau = axis.dir.as_vec3();
+                let mut screw_order = 0;
+                for i in 0..3 {
+                    let full_num = full_tau[i].numerator;
+                    let tau_num = tau[i].numerator;
+                    if tau_num == full_num && full_num == 0 {
+                        // this axis could be any scale
+                        continue;
+                    } else if tau_num % full_num != 0 {
+                        panic!("{full_tau} does not divide {tau}");
+                    } else {
+                        let new_order = tau_num / full_num;
+                        if screw_order != 0 && new_order != screw_order {
+                            panic!("{tau:?} is not along the axis {full_tau:?}");
+                        } else {
+                            screw_order = new_order;
+                        }
+                    }
+                }
+
+                if screw_order == 0 {
+                    println!("Full: {full_tau}\nTau: {tau}");
+                    panic!("Screw order cannot be 0");
+                }
+                Self::Screw(
+                    rot,
+                    if proper {
+                        RotationDirectness::Proper
+                    } else {
+                        RotationDirectness::Improper
+                    },
+                    screw_order as i8,
+                )
+            }
+        };
+
+        raw_self.conventional()
     }
 
     pub fn new_generalized_reflection(plane: Plane, tau: Vector3<Frac>) -> Self {
@@ -199,6 +393,42 @@ impl SymmOp {
             Self::Reflection(plane)
         } else {
             Self::Glide(plane, tau)
+        }
+    }
+
+    /// Returns a normalized version, changing the representation of the SymmOp to comply with ITA
+    /// conventions. The actual meaning and the associated isometry do not change.
+    ///
+    /// An example of when normalization is necessary: positive rotation around the axis [1 -1 1]
+    /// and negative rotation around the axis [-1 1 -1] are equivalent. ITA uses the latter
+    /// representation, for reasons that are unclear to me, and so when comparing `SymmOp` values to
+    /// other references it's important to flip this around. In other cases, it makes a lot more
+    /// sense: the axis [001] is much more natural than its flipped equivalent.
+    fn conventional(self) -> Self {
+        // for some reason, the convention seems to be an even number of negative signs in the axis.
+        // I have no idea why this is, and it's not explained at all in ITA, at least where I can
+        // find. It might be some deep result of how they generate the symmetry directions for the
+        // space group.
+        match self {
+            SymmOp::Identity => self,
+            SymmOp::Inversion(_) => self,
+            SymmOp::Translation(_) => self,
+            SymmOp::Rotation(rot) | SymmOp::Rotoinversion(rot) | SymmOp::Screw(rot, _, _) => {
+                if !rot.axis.is_conventionally_oriented() {
+                    match self {
+                        SymmOp::Rotation(rot) => SymmOp::Rotation(rot.as_opposite_axis()),
+                        SymmOp::Rotoinversion(rot) => SymmOp::Rotoinversion(rot.as_opposite_axis()),
+                        SymmOp::Screw(rot, directness, order) => {
+                            SymmOp::Screw(rot.as_opposite_axis(), directness, -order)
+                        }
+                        _ => panic!(),
+                    }
+                } else {
+                    self
+                }
+            }
+            SymmOp::Reflection(_) => todo!(),
+            SymmOp::Glide(_, _) => todo!(),
         }
     }
 
@@ -217,10 +447,10 @@ impl SymmOp {
             SymmOp::Translation(tau) => {
                 Isometry::new_rot_tau(Matrix3::identity(), tau.clone_owned())
             }
-            SymmOp::Rotation(axis, kind)
-            | SymmOp::Rotoinversion(axis, kind)
-            | SymmOp::Screw(axis, kind, _, _, _) => {
+            SymmOp::Rotation(rot) | SymmOp::Rotoinversion(rot) | SymmOp::Screw(rot, _, _) => {
                 // I am going to 100% punt on doing this without numerical instability.
+                let axis = rot.axis;
+                let kind = rot.kind;
                 let th = f64::from(kind.as_frac()) * TAU;
                 let (o, u) = axis.as_origin_vector();
                 let o: Point3<f64> = o.to_subset_unchecked();
@@ -231,10 +461,13 @@ impl SymmOp {
                 let trans = Translation3::new(o.x, o.y, o.z).to_homogeneous();
                 let trans_inv = Translation3::new(-o.x, -o.y, -o.z).to_homogeneous();
                 let affine = match self {
-                    SymmOp::Rotation(_, _) => trans * rot * trans_inv,
-                    SymmOp::Rotoinversion(_, _) => trans * inv_mat * rot * trans_inv,
-                    SymmOp::Screw(_, _, is_proper, _order, tau) => {
-                        let roto_inv = if *is_proper { rot } else { inv_mat * rot };
+                    SymmOp::Rotation(_) => trans * rot * trans_inv,
+                    SymmOp::Rotoinversion(_) => trans * inv_mat * rot * trans_inv,
+                    SymmOp::Screw(_, proper, order) => {
+                        let roto_inv = rot * f64::from(proper.det_sign());
+                        let tau = axis
+                            .dir
+                            .scaled_vec(Frac::from(*order as BaseInt) / Frac::from(kind.order()));
                         let tau_m: Vector3<f64> = tau.to_subset_unchecked();
                         Translation3::new(tau_m.x, tau_m.y, tau_m.z).to_homogeneous()
                             * trans
@@ -335,6 +568,7 @@ fn gauss_eliminate(aug: &mut OMatrix<Frac, Const<3>, Const<7>>) {
     }
 }
 
+/// 3x3 determinant, implemented for `Frac`.
 fn det3x3(m: Matrix3<Frac>) -> Frac {
     let m_nums: Vec<i32> = m.iter().map(|f| f.numerator.into()).collect();
     if let [a, d, g, b, e, h, c, f, i] = m_nums.as_slice() {
@@ -418,7 +652,7 @@ impl SymmOp {
             // solve for fixed point to find center
             // -p + τ = p
             // p = τ/2
-            return Ok(Self::Inversion(w.scale(Frac::ONE_HALF).into()))
+            return Ok(Self::Inversion(w.scale(Frac::ONE_HALF).into()));
         } else {
             // (b) find rotation axis
 
@@ -439,6 +673,8 @@ impl SymmOp {
             // column and picking the first one that's nonzero.
             assert!(!Y.is_zero());
 
+            // scale axis by determinant, because geometric operations for rotoinversions describe
+            // the rotation and not the inversion!
             let axis = (0..3)
                 .filter_map(|c| {
                     if Y.column(c).abs().sum().is_zero() {
@@ -449,12 +685,14 @@ impl SymmOp {
                 })
                 .next()
                 .unwrap()
-                .clone_owned();
+                .clone_owned()
+                * det;
 
             let rot_kind = if order > 2 {
                 // (c) sense of rotation
 
-                // the sense is, where u is the axis, x is some vector not parallel to u, and d = det W
+                // the sense is, where u is the axis, x is some vector not parallel to u, and d =
+                // det W
 
                 // | u1 x1 (dWx)1 |
                 // | u2 x2 (dWx)2 |
@@ -471,12 +709,9 @@ impl SymmOp {
                         } else {
                             Some(z_det)
                         }
-                    })                
+                    })
                     .next()
                     .unwrap_or_else(|| panic!("{} {}", axis, W));
-
-                // todo this det is not indicated, but it's the only way I get it to work?
-                let sense = sense * det;
 
                 // println!("Y(±W): {}", Y);
                 // println!(
@@ -740,5 +975,28 @@ mod tests {
         // println!("{}", aug2);
         assert!(aug2.fixed_view::<2, 2>(1, 0).lower_triangle().is_zero());
         assert!(aug2.fixed_view::<2, 2>(0, 1).upper_triangle().is_zero());
+    }
+
+    #[test]
+    fn test_hexagonal() {
+        let iso = Isometry::from_str("-y, x - y, -z").unwrap();
+        let symm = SymmOp::classify_affine(iso).unwrap();
+        let ans = SymmOp::new_generalized_rotation(
+            RotationAxis::new(
+                Vector3::new(frac!(0), frac!(0), frac!(1)),
+                Point3::new(frac!(0), frac!(0), frac!(0)),
+            ),
+            RotationKind::NegSix,
+            false,
+            Vector3::zero(),
+        );
+        assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
+        // assert_eq!(
+        //     symm.to_iso(),
+        //     ans.to_iso(),
+        //     "{}\n{}",
+        //     symm.to_iso().mat(),
+        //     ans.to_iso().mat()
+        // )
     }
 }
