@@ -59,18 +59,21 @@ impl Direction {
 
     /// Returns whether the axis is correctly oriented for ITA conventions.
     pub fn is_conventionally_oriented(&self) -> bool {
-        // even number of negative signs
+        // ????? this rule is not explained anywhere I can find. After some reverse-engineering, it
+        // appears to be that an even number of negative signs are preferred, unless it's like [0,
+        // -1, -1], in which case flipping is clearly better.
 
-        // ????? no idea why, not explained
-
-        let mut num_signs = 0;
+        let mut num_neg = 0;
+        let mut num_pos = 0;
         for i in 0..3 {
             if self.v[i] < 0 {
-                num_signs += 1;
+                num_neg += 1;
+            } else if self.v[i] > 0 {
+                num_pos += 1;
             }
         }
 
-        num_signs % 2 == 0
+        (num_neg % 2 == 0) && (num_pos > 0)
     }
 
     /// Flips the direction.
@@ -83,6 +86,34 @@ impl Direction {
     /// Gets a scaled version of the direction's first lattice vector.
     pub fn scaled_vec(&self, scale: Frac) -> Vector3<Frac> {
         self.as_vec3().scale(scale)
+    }
+
+    pub fn compute_scale(&self, v: Vector3<Frac>) -> Option<Frac> {
+        if v.is_zero() {
+            return Some(frac!(0));
+        }
+        let tau = v;
+        let full_tau = self.as_vec3();
+        let mut scale = None;
+        for i in 0..3 {
+            let full_i = full_tau[i];
+            let tau_i = tau[i];
+            if tau_i == full_i && full_i.is_zero() {
+                // this axis could be any scale
+                continue;
+            } else {
+                let new_scale = tau_i / full_i;
+                if scale.is_some_and(|f| f == new_scale) {
+                    // this could be an error in the future, perhaps
+                    // mismatching is not good!
+                    return None;
+                } else {
+                    scale.replace(new_scale);
+                }
+            }
+        }
+
+        scale
     }
 }
 
@@ -102,23 +133,6 @@ pub struct RotationAxis {
     pub origin: Point3<Frac>,
     /// The direction of the axis.
     pub dir: Direction,
-}
-
-/// Finds the first lattice point
-fn reduce_coefs(v: &Vector3<Frac>) -> (Vector3<Frac>, i16) {
-    let nonzero_elems: Vec<BaseInt> = v
-        .iter()
-        .filter_map(|e| if e.is_zero() { None } else { Some(e.numerator) })
-        .collect();
-    let scaling_factor = match nonzero_elems[..] {
-        [] => 0,
-        [i1] => i1,
-        [i1, i2] => Frac::gcd(i1.abs(), i2.abs()) * i1.signum(),
-        [i1, i2, i3] => Frac::gcd(Frac::gcd(i1.abs(), i2.abs()), i3.abs()) * i1.signum(),
-        _ => panic!("Should be unreachable"),
-    };
-
-    (v.map(|e| e / frac!(scaling_factor)), scaling_factor)
 }
 
 impl RotationAxis {
@@ -214,34 +228,31 @@ impl RotationKind {
 /// A plane (particularly of reflection.)
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Plane {
-    n: Vector3<Frac>,
+    /// The direction of the normal vector.
+    n: Direction,
+    /// The scale such that nd is on the plane.
     d: Frac,
 }
 
 impl Plane {
-    pub fn from_normal_and_d(n: Vector3<Frac>, d: Frac) -> Self {
-        let (_n_scaled, scale) = reduce_coefs(&n);
-        let d_scale = (Frac::gcd(scale.abs(), d.numerator.abs()) * scale.signum()).into();
-        Self {
-            n: n.map(|e| e / d_scale),
-            d: d / d_scale,
-        }
-    }
+    /// Initializes a plane from its basis and a point on it. Specifically, this plane is the set {o
+    /// + a v1 + b v2}, for all real a, b.
     pub fn from_basis_and_origin(
         v1: Vector3<Frac>,
         v2: Vector3<Frac>,
         origin: Point3<Frac>,
     ) -> Self {
         let normal = v1.cross(&v2);
-        let d = -normal.dot(&origin.coords);
-        Self::from_normal_and_d(normal, d)
+        let n = Direction::new(normal);
+        let dist = normal.dot(&origin.coords);
+        Self { n, d: dist }
     }
 
     pub fn reflection_matrix(&self) -> Matrix4<f64> {
         // for now, use f64
 
         // https://www.wikiwand.com/en/Transformation_matrix#Reflection_2
-        let fl_n: Vector3<f64> = self.n.to_subset_unchecked();
+        let fl_n: Vector3<f64> = self.n.as_vec3().to_subset_unchecked();
         let fl_n_norm = fl_n.norm();
         let &[a, b, c] = fl_n.scale(1. / fl_n_norm).as_slice() else {
             panic!()
@@ -257,6 +268,14 @@ impl Plane {
                 entry - 2. * abcd[i] * abcd[j]
             }
         })
+    }
+
+    /// Returns an equivalent representation but oriented the opposite direction.
+    pub fn inv(&self) -> Self {
+        Self {
+            n: self.n.inv(),
+            d: -self.d,
+        }
     }
 }
 
@@ -344,35 +363,17 @@ impl SymmOp {
         tau: Vector3<Frac>,
     ) -> Self {
         let rot = SimpleRotation::new(axis, kind);
-        let raw_self = match (is_proper, tau.is_zero()) {
+        let rot_op = match (is_proper, tau.is_zero()) {
             (true, true) => Self::Rotation(rot),
             (false, true) => Self::Rotoinversion(rot),
             (proper, false) => {
-                let tau = tau.scale(kind.order().into());
-                let full_tau = axis.dir.as_vec3();
-                let mut screw_order = 0;
-                for i in 0..3 {
-                    let full_num = full_tau[i].numerator;
-                    let tau_num = tau[i].numerator;
-                    if tau_num == full_num && full_num == 0 {
-                        // this axis could be any scale
-                        continue;
-                    } else if tau_num % full_num != 0 {
-                        panic!("{full_tau} does not divide {tau}");
-                    } else {
-                        let new_order = tau_num / full_num;
-                        if screw_order != 0 && new_order != screw_order {
-                            panic!("{tau:?} is not along the axis {full_tau:?}");
-                        } else {
-                            screw_order = new_order;
-                        }
-                    }
-                }
-
-                if screw_order == 0 {
-                    println!("Full: {full_tau}\nTau: {tau}");
-                    panic!("Screw order cannot be 0");
-                }
+                let screw_scale = axis.dir.compute_scale(tau).expect("Bad screw translation");
+                let screw_order = screw_scale * Frac::from(kind.order());
+                let screw_order = if screw_order.numerator % Frac::DENOM != 0 {
+                    panic!("Screw translation not proper scale");
+                } else {
+                    screw_order.numerator / Frac::DENOM
+                };
                 Self::Screw(
                     rot,
                     if proper {
@@ -385,15 +386,16 @@ impl SymmOp {
             }
         };
 
-        raw_self.conventional()
+        rot_op.conventional()
     }
 
     pub fn new_generalized_reflection(plane: Plane, tau: Vector3<Frac>) -> Self {
-        if tau.is_zero() {
+        let reflect = if tau.is_zero() {
             Self::Reflection(plane)
         } else {
             Self::Glide(plane, tau)
-        }
+        };
+        reflect.conventional()
     }
 
     /// Returns a normalized version, changing the representation of the SymmOp to comply with ITA
@@ -404,31 +406,43 @@ impl SymmOp {
     /// representation, for reasons that are unclear to me, and so when comparing `SymmOp` values to
     /// other references it's important to flip this around. In other cases, it makes a lot more
     /// sense: the axis [001] is much more natural than its flipped equivalent.
-    fn conventional(self) -> Self {
+    pub fn conventional(&self) -> Self {
         // for some reason, the convention seems to be an even number of negative signs in the axis.
         // I have no idea why this is, and it's not explained at all in ITA, at least where I can
         // find. It might be some deep result of how they generate the symmetry directions for the
         // space group.
         match self {
-            SymmOp::Identity => self,
-            SymmOp::Inversion(_) => self,
-            SymmOp::Translation(_) => self,
+            SymmOp::Identity => self.clone(),
+            SymmOp::Inversion(_) => self.clone(),
+            SymmOp::Translation(_) => self.clone(),
             SymmOp::Rotation(rot) | SymmOp::Rotoinversion(rot) | SymmOp::Screw(rot, _, _) => {
                 if !rot.axis.is_conventionally_oriented() {
                     match self {
                         SymmOp::Rotation(rot) => SymmOp::Rotation(rot.as_opposite_axis()),
                         SymmOp::Rotoinversion(rot) => SymmOp::Rotoinversion(rot.as_opposite_axis()),
                         SymmOp::Screw(rot, directness, order) => {
-                            SymmOp::Screw(rot.as_opposite_axis(), directness, -order)
+                            SymmOp::Screw(rot.as_opposite_axis(), *directness, -order)
                         }
                         _ => panic!(),
                     }
                 } else {
-                    self
+                    self.clone()
                 }
             }
-            SymmOp::Reflection(_) => todo!(),
-            SymmOp::Glide(_, _) => todo!(),
+            SymmOp::Reflection(pl) => {
+                if !pl.n.is_conventionally_oriented() {
+                    SymmOp::Reflection(pl.inv())
+                } else {
+                    self.clone()
+                }
+            }
+            SymmOp::Glide(pl, tau) => {
+                if !pl.n.is_conventionally_oriented() {
+                    SymmOp::Glide(pl.inv(), tau.clone())
+                } else {
+                    self.clone()
+                }
+            }
         }
     }
 
@@ -904,7 +918,8 @@ mod tests {
                 Point3::new(frac!(0), frac!(-1 / 2), frac!(-1 / 2)),
             ),
             Vector3::new(frac!(1 / 4), frac!(-1 / 4), frac!(1 / 4)),
-        );
+        )
+        .conventional();
 
         assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
         assert_eq!(
