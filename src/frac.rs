@@ -829,13 +829,13 @@ impl Display for Frac {
             });
 
         let prefix = if self.numerator < 0 {
-            if !frac.contains('/') {
+            "-"
+            /* if !frac.contains('/') {
                 // blocked by nalgebra not handling this correctly
-                // "\u{0305}" // combining overline
-                "−" // minus
+                // "\u{0305}" // combining overline            
             } else {
                 "−" // minus
-            }
+            } */
         } else {
             ""
         };

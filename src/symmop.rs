@@ -3,14 +3,14 @@
 
 use std::f64::consts::TAU;
 use std::iter::successors;
-use std::ops::SubAssign;
+
 
 use nalgebra::{
-    matrix, vector, Const, Matrix3, Matrix4, OMatrix, Point3, Rotation3, SMatrix, Translation3,
+    matrix, Const, Matrix3, Matrix4, OMatrix, Point3, SMatrix, Translation3,
     Unit, Vector3,
 };
 use num_traits::Zero;
-use simba::scalar::{SubsetOf, SupersetOf};
+use simba::scalar::{SupersetOf};
 use thiserror::Error;
 
 use crate::frac;
@@ -31,8 +31,7 @@ pub struct RotationAxis {
 fn reduce_coefs(v: &Vector3<Frac>) -> (Vector3<Frac>, i16) {
     let nonzero_elems: Vec<BaseInt> = v
         .iter()
-        .map(|e| if e.is_zero() { None } else { Some(e.numerator) })
-        .flatten()
+        .filter_map(|e| if e.is_zero() { None } else { Some(e.numerator) })
         .collect();
     let scaling_factor = match nonzero_elems[..] {
         [] => 0,
@@ -410,16 +409,16 @@ impl SymmOp {
         if rot_type == 1 {
             // translation or identity, no rotational component
             if w == Vector3::<Frac>::zeros() {
-                return Ok(Self::Identity);
+                Ok(Self::Identity)
             } else {
-                return Ok(Self::Translation(w));
+                Ok(Self::Translation(w))
             }
         } else if rot_type == -1 {
             // inversion, find center
             // solve for fixed point to find center
             // -p + τ = p
             // p = τ/2
-            return Ok(Self::Inversion(w.scale(Frac::ONE_HALF).into()));
+            return Ok(Self::Inversion(w.scale(Frac::ONE_HALF).into()))
         } else {
             // (b) find rotation axis
 
@@ -441,14 +440,13 @@ impl SymmOp {
             assert!(!Y.is_zero());
 
             let axis = (0..3)
-                .map(|c| {
+                .filter_map(|c| {
                     if Y.column(c).abs().sum().is_zero() {
                         None
                     } else {
                         Some(Y.column(c))
                     }
                 })
-                .flatten()
                 .next()
                 .unwrap()
                 .clone_owned();
@@ -465,7 +463,7 @@ impl SymmOp {
                 // We can pick x to be one of the basis vectors.
                 let sense: Frac = [Vector3::x(), Vector3::y(), Vector3::z()]
                     .into_iter()
-                    .map(|x| {
+                    .filter_map(|x| {
                         let Z = Matrix3::from_columns(&[axis, x, W_abs * x]);
                         let z_det = det3x3(Z);
                         if z_det.is_zero() {
@@ -473,10 +471,9 @@ impl SymmOp {
                         } else {
                             Some(z_det)
                         }
-                    })
-                    .flatten()
+                    })                
                     .next()
-                    .expect(format!("{} {}", axis, W).as_str());
+                    .unwrap_or_else(|| panic!("{} {}", axis, W));
 
                 // todo this det is not indicated, but it's the only way I get it to work?
                 let sense = sense * det;
@@ -496,7 +493,7 @@ impl SymmOp {
                 // this would mean our x logic above failed
                 assert!(sense != 0 || order == 2, "{} is 0???", sense);
                 let is_ccw = sense == 1;
-                Some(RotationKind::new(is_ccw, rot_type.abs() as usize))
+                Some(RotationKind::new(is_ccw, rot_type.unsigned_abs() as usize))
             } else {
                 // reflection
                 None

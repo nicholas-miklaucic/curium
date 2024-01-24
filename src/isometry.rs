@@ -1,7 +1,7 @@
 //! Defines the symmetry operations in 3D space.
 
 use std::{
-    ops::{Div, Mul},
+    ops::{Mul},
     str::FromStr,
 };
 
@@ -98,7 +98,7 @@ impl TryFrom<Matrix4<Frac>> for Isometry {
 
 /// Parses a single coefficient.
 fn parse_coef(s: &str) -> Result<Frac, IsometryError> {
-    let s = s.replace(" ", "");
+    let s = s.replace(' ', "");
     let s0 = s.replace('v', "");
     let s1 = s.replace('v', "1");
     let res = Frac::from_str(s0.as_str())
@@ -112,7 +112,7 @@ fn parse_single_var(s: &str) -> Result<RowVector4<Frac>, IsometryError> {
     let err = IsometryError::CoordParse(s.to_owned());
     let mut coef = Err(err.clone());
     let mut ivals = vec![];
-    for (i, var) in vec![(0, "x"), (1, "y"), (2, "z"), (3, "v")] {
+    for (i, var) in [(0, "x"), (1, "y"), (2, "z"), (3, "v")] {
         if i == 3 || s.contains(var) {
             coef = coef.or(parse_coef(s.replace(var, "v").as_str()));
             ivals.push(i);
@@ -128,8 +128,8 @@ fn parse_single_var(s: &str) -> Result<RowVector4<Frac>, IsometryError> {
 
 /// Parses a coordinate, e.g., `x - y`, from a String.
 fn parse_coord(s: &str) -> Result<RowVector4<Frac>, IsometryError> {
-    let s_pm = s.replace("-", "+-").replace(" ", "");
-    let coefs = s_pm.split("+").filter(|s| !s.is_empty());
+    let s_pm = s.replace('-', "+-").replace(' ', "");
+    let coefs = s_pm.split('+').filter(|s| !s.is_empty());
     // println!("{:?}", coefs.collect::<Vec<_>>());
     // let coefs = s_pm.split("+").filter(|s| !s.is_empty());
     // let vecs = coefs.map(parse_single_var).collect::<Vec<_>>();
@@ -143,10 +143,10 @@ impl FromStr for Isometry {
     /// Parses a symmetry operation from a triplet, e.g., `-y, x-y, z+1/3`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let rows: Result<Vec<RowVector4<Frac>>, IsometryError> =
-            s.split(",").map(parse_coord).collect();
+            s.split(',').map(parse_coord).collect();
         let rows = rows?;
         if rows.len() != 3 {
-            return Err(IsometryError::CoordParse(s.to_owned()));
+            Err(IsometryError::CoordParse(s.to_owned()))
         } else {
             let m = Matrix3x4::<Frac>::from_rows(&rows[..]);
             Ok(Isometry::new_rot_tau(
