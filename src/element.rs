@@ -6,18 +6,18 @@
 // wtf is atomic radius calculated if it's also empirical
 
 use crate::units::*;
-use uom::si::time::year;
+use uom::si::electrical_resistivity::ohm_meter;
+use uom::si::length::picometer;
+use uom::si::mass::dalton;
 use uom::si::mass_density::kilogram_per_cubic_meter;
 use uom::si::molar_energy::kilojoule_per_mole;
-use uom::si::mass::dalton;
-use uom::si::thermodynamic_temperature::kelvin;
-use uom::si::pressure::{megapascal, gigapascal};
-use uom::si::length::picometer;
-use uom::si::electrical_resistivity::ohm_meter;
+use uom::si::pressure::{gigapascal, megapascal};
+use uom::si::ratio::ratio;
 use uom::si::temperature_coefficient::per_kelvin;
 use uom::si::thermal_conductivity::watt_per_meter_degree_celsius;
+use uom::si::thermodynamic_temperature::kelvin;
+use uom::si::time::year;
 use uom::si::velocity::meter_per_second;
-use uom::si::ratio::ratio;
 
 /// An element in the periodic table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -140,16 +140,12 @@ pub enum Element {
     Livermorium,
     Tennessine,
     Oganesson,
-    Ununennium
-    // from OUT_DIR/element_names.rs
-    // you can't include a file to define enum variants :(
-    // but I don't think new elements get defined that often
+    Ununennium, // from OUT_DIR/element_names.rs
+                // you can't include a file to define enum variants :(
+                // but I don't think new elements get defined that often
 }
 
 include!(concat!(env!("OUT_DIR"), "/element_data.rs"));
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -166,9 +162,32 @@ mod tests {
     #[test]
     fn test_element_fields() {
         assert_eq!(Element::Carbon.atomic_number().unwrap(), 6);
-        assert_abs_diff_eq!(Element::Boron.mineral_hardness().unwrap().get::<megapascal>(), 9.3);
+        assert_abs_diff_eq!(
+            Element::Boron
+                .mineral_hardness()
+                .unwrap()
+                .get::<megapascal>(),
+            9.3
+        );
         assert_eq!(Element::Fluorine.half_life(), None);
-        assert_abs_diff_eq!(Element::Fluorine.atomic_radius_empirical().unwrap().get::<picometer>(), 50.);
-        assert_abs_diff_eq!(Element::Zirconium.atomic_radius_calculated().unwrap().get::<picometer>(), 206.);
+        assert_abs_diff_eq!(
+            Element::Fluorine
+                .atomic_radius_empirical()
+                .unwrap()
+                .get::<picometer>(),
+            50.
+        );
+        assert_abs_diff_eq!(
+            Element::Zirconium
+                .atomic_radius_calculated()
+                .unwrap()
+                .get::<picometer>(),
+            206.
+        );
+
+        assert_abs_diff_eq!(
+            Element::Berkelium.melting_point().unwrap().get::<kelvin>(),
+            1259.
+        );
     }
 }
