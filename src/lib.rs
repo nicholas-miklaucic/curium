@@ -1,6 +1,11 @@
+#[macro_use]
+extern crate uom;
+
 pub mod frac;
 pub mod isometry;
 pub mod symmop;
+pub mod units;
+pub mod element;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
