@@ -6,10 +6,7 @@ use nalgebra::{Matrix3, Matrix3x4, Matrix4, RowVector4, Translation3, Vector3};
 use simba::scalar::SupersetOf;
 use thiserror::Error;
 
-use crate::{
-    frac::Frac,
-    markup::{Block, BlockSequence},
-};
+use crate::{frac::Frac, markup::Block};
 
 #[derive(Debug, Error, Clone)]
 pub enum IsometryError {

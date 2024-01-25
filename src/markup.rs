@@ -7,18 +7,20 @@
 //! The resulting markup is also just useful for a variety of UI applications, even outside of the
 //! specific needs of the library itself.
 
+use crate::frac::Frac;
+use fortuples::fortuples;
+
 /// A primitive in Curium's markup system. Any type that can represent itself using these pieces
 /// can easily be faithfully rendered in different formats.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Block {
     /// Plain text. Escaping is handled by individual modes: this should be formatted for humans.
     Text(String),
-    /// An integer.
-    Integer(i64),
-    /// A floating-point number.
-    Float(f64),
-    /// A symbol that can be represented using Unicode or ASCII, such as an arrow →.
+    /// A symbol with multiple representations depending on available characters and environment,
+    /// such as a right arrow.
     Symbol(Symbol),
+    /// A concatenation of blocks that are inseparable, like two symbols one after another.
+    Concatenation(Vec<Block>),
 }
 
 /// A symbol that can be represented using Unicode or ASCII, such as an arrow →.
@@ -28,108 +30,171 @@ pub struct Symbol {
     pub unicode: &'static str,
 }
 
-impl Symbol {
-    /// The fraction slash, which
-    pub const FRAC_SLASH: Symbol = Symbol {
-        ascii: "/",
-        unicode: "⁄",
-    };
-}
+impl Symbol {}
 
 impl Block {
     pub fn new_text<T: Into<String>>(string: T) -> Self {
         Block::Text(string.into())
     }
 
-    pub fn new_int<T: Into<i64>>(int: T) -> Self {
-        Block::Integer(int.into())
+    pub const fn new_symbol(ascii: &'static str, unicode: &'static str) -> Self {
+        Block::Symbol(Symbol { ascii, unicode })
     }
 
-    pub fn new_float<T: Into<f64>>(float: T) -> Self {
-        Block::Float(float.into())
+    pub fn new_concatenation<T: IntoIterator<Item = Block>>(t: T) -> Self {
+        Block::Concatenation(t.into_iter().collect())
     }
+
+    /// The fraction slash, represented using a normal slash in ASCII mode.
+    pub const FRAC_SLASH: Block = Block::new_symbol("/", "\u{2044}");
+
+    /// The minus sign, falling back to a hyphen.
+    pub const MINUS_SIGN: Block = Block::new_symbol("-", "\u{2212}");
 }
 
-/// A render *mode*, an environment that can display information.
-pub trait RenderMode: Sized {
-    /// Render a primitive.
-    fn render_block(&mut self, block: &Block) -> String;
-    /// Render a collection of primitives.
-    fn render_blocks(&mut self, blocks: &[Block]) -> String {
-        let outputs: Vec<String> = blocks.iter().map(|b| self.render_block(b)).collect();
-
-        outputs.join("")
+/// A render *mode*: an environment in which information can be displayed.
+pub trait RenderMode: Default {
+    /// Renders plain text. This is where, for instance, escaping should happen: it's assumed that
+    /// any characters in the input are intended to be represented as they are, not as control
+    /// codes or markup.
+    fn render_text(&mut self, text: &str) -> String {
+        text.to_string()
     }
-}
 
-pub trait BlockSequence {
-    fn blocks(&self) -> Vec<Block>;
-}
-
-/// An element that can be rendered inside a rendering environment, or mode.
-pub trait Render<M> {
-    fn render(&self, mode: &mut M) -> String;
-}
-
-impl<M: RenderMode> Render<M> for Block {
-    fn render(&self, mode: &mut M) -> String {
-        mode.render_block(self)
+    /// Renders a symbol.
+    fn render_symbol(&mut self, sym: &Symbol) -> String {
+        sym.unicode.to_string()
     }
-}
 
-impl<V: BlockSequence, M: RenderMode> Render<M> for V {
-    default fn render(&self, mode: &mut M) -> String {
-        mode.render_blocks(&self.blocks())
+    /// Renders a concatenation of other blocks. The default should work (one after another) most of
+    /// the time, but some modes may want to add spaces (if those aren't semantic) or do other
+    /// escaping.
+    fn render_concatenation<'a, C: IntoIterator<Item = &'a Block>>(&mut self, blocks: C) -> String {
+        blocks.into_iter().map(|b| self.render_block(b)).collect()
     }
-}
 
-pub struct Ascii {}
-
-impl RenderMode for Ascii {
-    fn render_block(&mut self, block: &Block) -> String {
-        match &block {
-            Block::Text(t) => t.clone(),
-            Block::Integer(i) => format!("{i}"),
-            Block::Float(f) => format!("{f:.06}"),
-            Block::Symbol(Symbol { ascii, unicode: _ }) => (*ascii).into(),
-        }
-    }
-}
-
-/// Render mode that attempts to mimic ITA style using non-ASCII characters.
-#[derive(Debug, Default, Copy, Clone, Eq, Hash, PartialEq)]
-pub struct ItaStyle {}
-
-impl RenderMode for ItaStyle {
+    /// Render a block.
+    ///
+    /// When implementing [`RenderMode`], generally do not override this method. Instead, implement
+    /// whichever branch methods you want to customize.
     fn render_block(&mut self, block: &Block) -> String {
         match block {
-            Block::Text(t) => t.clone(),
-            Block::Integer(i) => {
-                if i < &0 && i >= &-9 {
-                    // only use overline for single-digit negatives
-                    let i_abs = i.abs();
-                    format!("{i_abs}\u{305}")
-                } else {
-                    format!("{i}")
-                }
-            }
-            Block::Float(f) => format!("{f:.06}"),
-            Block::Symbol(Symbol { ascii: _, unicode }) => (*unicode).into(),
+            Block::Text(t) => self.render_text(t),
+            Block::Symbol(sym) => self.render_symbol(sym),
+            Block::Concatenation(blocks) => self.render_concatenation(blocks),
         }
     }
 }
 
-pub struct Arrow {}
+/// Trait representing the state of a document in progress that can be written to iteratively and
+/// then completed, returning a `String`.
+trait RenderCanvas<M: RenderMode> {
+    /// Initializes an empty document with the given mode.
+    fn new_empty() -> Self;
 
-impl BlockSequence for Arrow {
-    fn blocks(&self) -> Vec<Block> {
-        vec![Block::Text("⇒".into())]
+    /// Renders an element.
+    fn render_block(&mut self, block: &Block) -> &mut Self;
+
+    /// Completes writing, returning the output String.
+    fn complete(self) -> String;
+}
+
+/// A buffer into which elements can be rendered. Essentially a [`RenderMode`] that can change,
+/// backed by a string. Does not keep track of rendered state outside the mode.
+#[derive(Debug, Default, Clone)]
+pub struct SimpleStringBuf<M: RenderMode> {
+    buf: String,
+    mode: M,
+}
+
+impl<M: RenderMode> RenderCanvas<M> for SimpleStringBuf<M> {
+    fn new_empty() -> Self {
+        Self {
+            buf: String::new(),
+            mode: M::default(),
+        }
+    }
+
+    /// Renders an element.
+    fn render_block(&mut self, block: &Block) -> &mut Self {
+        self.buf.push_str(self.mode.render_block(block).as_str());
+        self
+    }
+
+    /// Completes writing, returning the output String.
+    fn complete(self) -> String {
+        self.buf
     }
 }
 
-impl Render<Ascii> for Arrow {
-    fn render(&self, mode: &mut Ascii) -> String {
-        mode.render_block(&Block::Text("=>".into()))
+pub trait Render<M: RenderMode> {
+    fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C;
+
+    /// Renders to an empty string.
+    fn render_as_str(&self) -> String {
+        let mut buf = SimpleStringBuf::<M>::new_empty();
+        self.render_to(&mut buf);
+        buf.complete()
+    }
+}
+
+impl<M> Render<M> for Block
+where
+    M: RenderMode,
+{
+    fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
+        c.render_block(self)
+    }
+}
+
+/// Trait for types that can be rendered by concatenating smaller pieces.
+pub trait RenderComponents {
+    /// The type of the components.
+    type Components;
+
+    /// Decompose self into components.
+    fn components(&self) -> Self::Components;
+}
+
+fortuples! {
+    #[tuples::min_size(1)]
+    impl<M: RenderMode> Render<M> for #Tuple
+    where
+        #(#Member: Render<M>),*
+    {
+        fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
+            #(#self.render_to(c);)*
+
+            c
+        }
+    }
+}
+
+impl<T, M> Render<M> for T
+where
+    T: RenderComponents,
+    T::Components: Render<M>,
+    M: RenderMode,
+{
+    default fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
+        self.components().render_to(c)
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct Ascii {}
+
+impl RenderMode for Ascii {}
+
+impl RenderComponents for Frac {
+    type Components = (Block, Block, Block);
+
+    fn components(&self) -> Self::Components {
+        (
+            Block::Text(format!("{}", self.numerator)),
+            Block::FRAC_SLASH,
+            Block::Text(format!("{}", Self::DENOM)),
+        )
     }
 }
 
@@ -140,18 +205,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_specialized() {
-        let a = Arrow {};
-        let mut m: Ascii = Ascii {};
-
-        assert_eq!(a.render(&mut m).as_str(), "=>");
-    }
-
-    #[test]
     fn test_frac() {
-        let f = frac!(-1 / 4);
-        let mut m = ItaStyle::default();
-        println!("{} {}", f.render(&mut m), "\u{305}1\u{2044}4");
-        assert_eq!(f.render(&mut m).as_str(), "\u{305}1\u{2044}6");
+        assert_eq!(
+            Render::<Ascii>::render_as_str(&frac!(5 / 24)).as_str(),
+            "5\u{2044}24"
+        );
     }
 }

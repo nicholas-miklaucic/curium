@@ -9,11 +9,10 @@ use simba::{scalar::SubsetOf, simd::PrimitiveSimdValue};
 use std::{
     fmt::Display,
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign},
+    slice,
     str::FromStr,
 };
 use thiserror::Error;
-
-use crate::markup::{Block, BlockSequence, ItaStyle, Render, RenderMode, Symbol};
 
 /// The base type used. We don't need large values here, ±32768 is more than enough.
 pub type BaseInt = i16;
@@ -794,26 +793,29 @@ impl std::fmt::Debug for Frac {
     }
 }
 
-impl BlockSequence for Frac {
+/* impl BlockSequence for Frac {
     fn blocks(&self) -> Vec<Block> {
         let abs_num = self.numerator.abs();
         let x = Frac::gcd(abs_num, DENOM);
         let new_p = abs_num / x;
         let new_q = DENOM / x;
+        let mut ans = vec![];
         if new_q == 1 {
-            vec![Block::new_int(new_p)]
+            ans.push(Block::new_int(new_p));
         } else {
-            vec![
+            ans.extend_from_slice(&[
                 Block::new_int(new_p),
-                Block::Symbol(Symbol::FRAC_SLASH),
+                Block::FRAC_SLASH,
                 Block::new_int(new_q),
-            ]
-        }
+            ]);
+        };
+
+        ans
     }
 }
 
-impl Render<ItaStyle> for Frac {
-    fn render(&self, mode: &mut ItaStyle) -> String {
+impl Render<ItaTerminal> for Frac {
+    fn render(&self, mode: &mut ItaTerminal) -> String {
         let orig = mode.render_blocks(&self.blocks());
         let out: Vec<&str> = orig.split('⁄').collect();
         match &out[..] {
@@ -839,11 +841,11 @@ impl Render<ItaStyle> for Frac {
             _ => orig,
         }
     }
-}
+} */
 
 impl Display for Frac {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.render(&mut ItaStyle::default()))
+        write!(f, "{}/{}", self.numerator, self::DENOM)
     }
 }
 
