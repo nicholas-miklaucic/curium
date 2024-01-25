@@ -1,15 +1,15 @@
 //! Defines the symmetry operations in 3D space.
 
-use std::{
-    ops::{Mul},
-    str::FromStr,
-};
+use std::{ops::Mul, str::FromStr};
 
 use nalgebra::{Matrix3, Matrix3x4, Matrix4, RowVector4, Translation3, Vector3};
 use simba::scalar::SupersetOf;
 use thiserror::Error;
 
-use crate::frac::Frac;
+use crate::{
+    frac::Frac,
+    markup::{Block, BlockSequence},
+};
 
 #[derive(Debug, Error, Clone)]
 pub enum IsometryError {

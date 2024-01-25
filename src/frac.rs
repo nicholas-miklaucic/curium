@@ -13,6 +13,8 @@ use std::{
 };
 use thiserror::Error;
 
+use crate::markup::{Block, BlockSequence, ItaStyle, Render, RenderMode, Symbol};
+
 /// The base type used. We don't need large values here, ±32768 is more than enough.
 pub type BaseInt = i16;
 /// The base needed to represent all of the necessary coordinate transformations and symmetry
@@ -786,61 +788,62 @@ impl Frac {
     }
 }
 
-/// When printing out a fraction, we can make things more compact by only using / when necessary and
-/// otherwise using the existing Unicode characters for fractions.
-static UNICODE_SPECIAL_CASES: phf::Map<BaseInt, &'static str> = phf_map! {
-    0i16 => "0",
-    3i16 => "\u{215B}",
-    4i16 => "\u{2159}",
-    6i16 => "\u{00BC}",
-    8i16 => "\u{2153}",
-    9i16 => "\u{215C}",
-    12i16 => "\u{00BD}",
-    15i16 => "\u{215D}",
-    16i16 => "\u{2154}",
-    18i16 => "\u{00BE}",
-    20i16 => "\u{215A}",
-    21i16 => "\u{215E}",
-    24i16 => "1",
-};
-
 impl std::fmt::Debug for Frac {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "frac!({:02}/{})", self.numerator, DENOM)
     }
 }
 
+impl BlockSequence for Frac {
+    fn blocks(&self) -> Vec<Block> {
+        let abs_num = self.numerator.abs();
+        let x = Frac::gcd(abs_num, DENOM);
+        let new_p = abs_num / x;
+        let new_q = DENOM / x;
+        if new_q == 1 {
+            vec![Block::new_int(new_p)]
+        } else {
+            vec![
+                Block::new_int(new_p),
+                Block::Symbol(Symbol::FRAC_SLASH),
+                Block::new_int(new_q),
+            ]
+        }
+    }
+}
+
+impl Render<ItaStyle> for Frac {
+    fn render(&self, mode: &mut ItaStyle) -> String {
+        let orig = mode.render_blocks(&self.blocks());
+        let out: Vec<&str> = orig.split('⁄').collect();
+        match &out[..] {
+            [num, denom] => {
+                let new_num: String = num
+                    .chars()
+                    .map(|c| match c {
+                        '1' => '¹',
+                        c => c,
+                    })
+                    .collect();
+
+                let new_denom: String = denom
+                    .chars()
+                    .map(|c| match c {
+                        '1' => '₁',
+                        '6' => '₆',
+                        c => c,
+                    })
+                    .collect();
+                format!("{new_num}⁄{new_denom}")
+            }
+            _ => orig,
+        }
+    }
+}
+
 impl Display for Frac {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let abs_num = self.numerator.abs();
-
-        let frac = UNICODE_SPECIAL_CASES
-            .get(&abs_num)
-            .map(|&s| s.to_owned())
-            .unwrap_or_else(|| {
-                let x = Frac::gcd(abs_num, DENOM);
-                let new_p = abs_num / x;
-                let new_q = DENOM / x;
-                if new_q == 1 {
-                    format!("{}", new_p)
-                } else {
-                    format!("{}/{}", new_p, new_q)
-                }
-            });
-
-        let prefix = if self.numerator < 0 {
-            "-"
-            /* if !frac.contains('/') {
-                // blocked by nalgebra not handling this correctly
-                // "\u{0305}" // combining overline            
-            } else {
-                "−" // minus
-            } */
-        } else {
-            ""
-        };
-
-        write!(f, "{}{}", prefix, frac)
+        write!(f, "{}", self.render(&mut ItaStyle::default()))
     }
 }
 
@@ -852,19 +855,19 @@ macro_rules! frac {
 
         // n / d = x / DENOM
         // DENOM * n / d = x
-        if (Frac::DENOM * n) % d == 0 {
-            Frac::new_with_numerator((Frac::DENOM * n) / d)
+        if ($crate::frac::Frac::DENOM * n) % d == 0 {
+            $crate::frac::Frac::new_with_numerator(($crate::frac::Frac::DENOM * n) / d)
         } else {
             panic!(
                 "Invalid fraction: {}/{} cannot be represented as n/{}",
                 n,
                 d,
-                Frac::DENOM
+                $crate::frac::Frac::DENOM
             )
         }
     }};
     ($num:expr) => {
-        Frac::new_with_numerator(($num) * Frac::DENOM)
+        $crate::frac::Frac::new_with_numerator(($num) * $crate::frac::Frac::DENOM)
     };
 }
 

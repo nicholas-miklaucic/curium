@@ -17,10 +17,41 @@ pub enum Block {
     Integer(i64),
     /// A floating-point number.
     Float(f64),
+    /// A symbol that can be represented using Unicode or ASCII, such as an arrow →.
+    Symbol(Symbol),
+}
+
+/// A symbol that can be represented using Unicode or ASCII, such as an arrow →.
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+pub struct Symbol {
+    pub ascii: &'static str,
+    pub unicode: &'static str,
+}
+
+impl Symbol {
+    /// The fraction slash, which
+    pub const FRAC_SLASH: Symbol = Symbol {
+        ascii: "/",
+        unicode: "⁄",
+    };
+}
+
+impl Block {
+    pub fn new_text<T: Into<String>>(string: T) -> Self {
+        Block::Text(string.into())
+    }
+
+    pub fn new_int<T: Into<i64>>(int: T) -> Self {
+        Block::Integer(int.into())
+    }
+
+    pub fn new_float<T: Into<f64>>(float: T) -> Self {
+        Block::Float(float.into())
+    }
 }
 
 /// A render *mode*, an environment that can display information.
-pub trait RenderMode {
+pub trait RenderMode: Sized {
     /// Render a primitive.
     fn render_block(&mut self, block: &Block) -> String;
     /// Render a collection of primitives.
@@ -60,6 +91,30 @@ impl RenderMode for Ascii {
             Block::Text(t) => t.clone(),
             Block::Integer(i) => format!("{i}"),
             Block::Float(f) => format!("{f:.06}"),
+            Block::Symbol(Symbol { ascii, unicode: _ }) => (*ascii).into(),
+        }
+    }
+}
+
+/// Render mode that attempts to mimic ITA style using non-ASCII characters.
+#[derive(Debug, Default, Copy, Clone, Eq, Hash, PartialEq)]
+pub struct ItaStyle {}
+
+impl RenderMode for ItaStyle {
+    fn render_block(&mut self, block: &Block) -> String {
+        match block {
+            Block::Text(t) => t.clone(),
+            Block::Integer(i) => {
+                if i < &0 && i >= &-9 {
+                    // only use overline for single-digit negatives
+                    let i_abs = i.abs();
+                    format!("{i_abs}\u{305}")
+                } else {
+                    format!("{i}")
+                }
+            }
+            Block::Float(f) => format!("{f:.06}"),
+            Block::Symbol(Symbol { ascii: _, unicode }) => (*unicode).into(),
         }
     }
 }
@@ -80,6 +135,8 @@ impl Render<Ascii> for Arrow {
 
 #[cfg(test)]
 mod tests {
+    use crate::frac;
+
     use super::*;
 
     #[test]
@@ -88,5 +145,13 @@ mod tests {
         let mut m: Ascii = Ascii {};
 
         assert_eq!(a.render(&mut m).as_str(), "=>");
+    }
+
+    #[test]
+    fn test_frac() {
+        let f = frac!(-1 / 4);
+        let mut m = ItaStyle::default();
+        println!("{} {}", f.render(&mut m), "\u{305}1\u{2044}4");
+        assert_eq!(f.render(&mut m).as_str(), "\u{305}1\u{2044}6");
     }
 }
