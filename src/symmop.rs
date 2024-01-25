@@ -1,6 +1,7 @@
 //! A symmetry operation in 3D space, considered geometrically. Acts on 3D space as an [`Isometry`],
 //! but specifically considers the subgroup of isometries that occurs in crystal space groups.
 
+use std::cmp::Ordering;
 use std::f64::consts::TAU;
 use std::fmt::Display;
 use std::iter::successors;
@@ -66,10 +67,14 @@ impl Direction {
         let mut num_neg = 0;
         let mut num_pos = 0;
         for i in 0..3 {
-            if self.v[i] < 0 {
-                num_neg += 1;
-            } else if self.v[i] > 0 {
-                num_pos += 1;
+            match self.v[i].cmp(&0) {
+                Ordering::Less => {
+                    num_neg += 1;
+                }
+                Ordering::Equal => {}
+                Ordering::Greater => {
+                    num_pos += 1;
+                }
             }
         }
 
@@ -412,9 +417,9 @@ impl SymmOp {
         // find. It might be some deep result of how they generate the symmetry directions for the
         // space group.
         match self {
-            SymmOp::Identity => self.clone(),
-            SymmOp::Inversion(_) => self.clone(),
-            SymmOp::Translation(_) => self.clone(),
+            SymmOp::Identity => *self,
+            SymmOp::Inversion(_) => *self,
+            SymmOp::Translation(_) => *self,
             SymmOp::Rotation(rot) | SymmOp::Rotoinversion(rot) | SymmOp::Screw(rot, _, _) => {
                 if !rot.axis.is_conventionally_oriented() {
                     match self {
@@ -426,21 +431,21 @@ impl SymmOp {
                         _ => panic!(),
                     }
                 } else {
-                    self.clone()
+                    *self
                 }
             }
             SymmOp::Reflection(pl) => {
                 if !pl.n.is_conventionally_oriented() {
                     SymmOp::Reflection(pl.inv())
                 } else {
-                    self.clone()
+                    *self
                 }
             }
             SymmOp::Glide(pl, tau) => {
                 if !pl.n.is_conventionally_oriented() {
-                    SymmOp::Glide(pl.inv(), tau.clone())
+                    SymmOp::Glide(pl.inv(), *tau)
                 } else {
-                    self.clone()
+                    *self
                 }
             }
         }

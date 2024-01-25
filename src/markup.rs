@@ -7,8 +7,6 @@
 //! The resulting markup is also just useful for a variety of UI applications, even outside of the
 //! specific needs of the library itself.
 
-use crate::frac::Frac;
-
 /// A primitive in Curium's markup system. Any type that can represent itself using these pieces
 /// can easily be faithfully rendered in different formats.
 #[derive(Debug, Clone, PartialEq)]
@@ -26,8 +24,8 @@ pub trait RenderMode {
     /// Render a primitive.
     fn render_block(&mut self, block: &Block) -> String;
     /// Render a collection of primitives.
-    fn render_blocks(&mut self, blocks: &Vec<Block>) -> String {
-        let outputs: Vec<String> = blocks.into_iter().map(|b| self.render_block(b)).collect();
+    fn render_blocks(&mut self, blocks: &[Block]) -> String {
+        let outputs: Vec<String> = blocks.iter().map(|b| self.render_block(b)).collect();
 
         outputs.join("")
     }
@@ -44,7 +42,7 @@ pub trait Render<M> {
 
 impl<M: RenderMode> Render<M> for Block {
     fn render(&self, mode: &mut M) -> String {
-        mode.render_block(&self)
+        mode.render_block(self)
     }
 }
 
