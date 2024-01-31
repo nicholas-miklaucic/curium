@@ -1,83 +1,70 @@
-// //! Defines markup primitives for rendering output.
+//! Defines markup primitives for rendering output.
 
-// use either::Either;
+use crate::{
+    frac::Frac,
+    markup::{Block, Render, RenderCanvas, RenderComponents, RenderMode, Signed, Uint},
+};
 
-// use crate::markup::{Block, Render, RenderCanvas, RenderComponents, RenderMode};
+/// Signed integer.
+#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Int(pub i128);
 
-// /// A nonnegative integer.
-// #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
-// pub struct Uint(u128);
+impl RenderComponents for Int {
+    type Components = Signed<Uint>;
 
-// impl RenderComponents for Uint {
-//     type Components = Block;
+    fn components(&self) -> Self::Components {
+        let unsigned = Uint(self.0.unsigned_abs());
+        Signed::new(unsigned, self.0 < 0)
+    }
+}
 
-//     fn components(&self) -> Self::Components {
-//         Block::Text(format!("{}", self.0))
-//     }
-// }
+impl RenderComponents for (Uint, Block, Uint) {
+    type Components = (
+        <Uint as RenderComponents>::Components,
+        Block,
+        <Uint as RenderComponents>::Components,
+    );
 
-// impl<M: RenderMode, L: Render<M>, R: Render<M>> Render<M> for Either<L, R> {
-//     fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
-//         match self {
-//             Self::Left(l) => l.render_to(c),
-//             Self::Right(r) => r.render_to(c),
-//         }
-//     }
-// }
+    fn components(&self) -> Self::Components {
+        (self.0.components(), self.1, self.2.components())
+    }
+}
 
-// /// Signed integer.
-// #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
-// pub struct Int(i128);
+impl RenderComponents for Frac {
+    type Components = <Signed<(Uint, Block, Uint)> as RenderComponents>::Components;
 
-// impl RenderComponents for Int {
-//     type Components = Either<(Block, Uint), Uint>;
+    default fn components(&self) -> Self::Components {
+        Signed::new(
+            (
+                Uint(self.numerator.unsigned_abs() as u128),
+                Block::FRAC_SLASH,
+                Uint(Self::DENOM.unsigned_abs() as u128),
+            ),
+            self.numerator < 0,
+        )
+        .components()
+    }
+}
 
-//     fn components(&self) -> Self::Components {
-//         if self.0 < 0 {
-//             Either::Left((Block::MINUS_SIGN, Uint(self.0.unsigned_abs())))
-//         } else {
-//             Either::Right(Uint(self.0.unsigned_abs()))
-//         }
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use crate::{
+        frac,
+        markup::{ItaTerminal, Unicode},
+    };
 
-// // impl RenderComponents for Frac {
-// //     type Components = (Block, Block, Block);
+    use super::*;
 
-// //     default fn components(&self) -> Self::Components {
-// //         (
-// //             Block::Text(format!("{}", self.numerator)),
-// //             Block::FRAC_SLASH,
-// //             Block::Text(format!("{}", Self::DENOM)),
-// //         )
-// //     }
-// // }
+    #[test]
+    fn test_frac() {
+        assert_eq!(
+            Render::<Unicode>::render_as_str(&frac!(5 / 24)).as_str(),
+            "5\u{2044}24"
+        );
 
-// // impl Render<ItaTerminal> for Frac {
-// //     fn render_to<'a, 'b, C: RenderCanvas<ItaTerminal>>(&'a self, c: &'b mut C) -> &'b mut C {
-// //         c.render_raw(format!("({})/({})", self.numerator, Self::DENOM).as_str())
-// //     }
-// // }
-
-// /// The ITA style, adapted for terminals.
-// #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
-// pub struct ItaTerminal {}
-
-// impl RenderMode for ItaTerminal {}
-
-// #[cfg(test)]
-// mod tests {
-//     use crate::markup::Unicode;
-
-//     use super::*;
-
-//     #[test]
-//     fn test_negate() {
-//         assert_eq!(Render::<Unicode>::render_as_str(&Int(-5)).as_str(), "-5");
-
-//         assert_eq!(
-//             Render::<ItaTerminal>::render_as_str(&Int(-5)).as_str(),
-//             "5\u{0305}"
-//         );
-//     }
-// }
+        assert_eq!(
+            Render::<ItaTerminal>::render_as_str(&frac!(5 / 24)).as_str(),
+            "(5)/(24)"
+        );
+    }
+}

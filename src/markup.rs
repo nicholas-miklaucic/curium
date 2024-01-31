@@ -214,7 +214,7 @@ use either::Either;
 
 /// A nonnegative integer.
 #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Uint(u128);
+pub struct Uint(pub u128);
 
 impl RenderComponents for Uint {
     type Components = Block;
@@ -234,24 +234,56 @@ impl<M: RenderMode, L: Render<M>, R: Render<M>> Render<M> for Either<L, R> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Negate<T: Render<ItaTerminal>>(T);
+pub struct Signed<T: Render<ItaTerminal>> {
+    pub unsigned: T,
+    pub has_neg_sign: bool,
+}
 
-impl<T: RenderComponents + Render<ItaTerminal>> RenderComponents for Negate<T> {
-    type Components = (Block, T::Components);
+impl<T: Render<ItaTerminal>> Signed<T> {
+    pub fn new(t: T, is_neg: bool) -> Self {
+        Self {
+            unsigned: t,
+            has_neg_sign: is_neg,
+        }
+    }
+    pub fn new_pos(t: T) -> Self {
+        Self {
+            unsigned: t,
+            has_neg_sign: false,
+        }
+    }
 
-    fn components(&self) -> Self::Components {
-        (Block::MINUS_SIGN, self.0.components())
+    pub fn new_neg(t: T) -> Self {
+        Self {
+            unsigned: t,
+            has_neg_sign: true,
+        }
     }
 }
 
-impl<T: Render<ItaTerminal>> Render<ItaTerminal> for Negate<T>
+impl<T: RenderComponents + Render<ItaTerminal>> RenderComponents for Signed<T> {
+    type Components = Either<(Block, T::Components), T::Components>;
+
+    fn components(&self) -> Self::Components {
+        if self.has_neg_sign {
+            Either::Left((Block::MINUS_SIGN, self.unsigned.components()))
+        } else {
+            Either::Right(self.unsigned.components())
+        }
+    }
+}
+
+impl<T: Render<ItaTerminal>> Render<ItaTerminal> for Signed<T>
 where
-    Negate<T>: RenderComponents,
-    <Negate<T> as RenderComponents>::Components: Render<ItaTerminal>,
+    Signed<T>: RenderComponents,
+    <Signed<T> as RenderComponents>::Components: Render<ItaTerminal>,
 {
-    fn render_to<'a, 'b, C: RenderCanvas<ItaTerminal>>(&'a self, c: &'b mut C) -> &'b mut C {
+    default fn render_to<'a, 'b, C: RenderCanvas<ItaTerminal>>(
+        &'a self,
+        c: &'b mut C,
+    ) -> &'b mut C {
         c.render_raw(
-            Render::<ItaTerminal>::render_as_str(&self.0)
+            Render::<ItaTerminal>::render_as_str(&self.unsigned)
                 .chars()
                 .flat_map(|c| [c, '\u{0305}'])
                 .collect::<String>()
@@ -262,29 +294,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::frac;
-
     use super::*;
-
-    // #[test]
-    // fn test_frac() {
-    //     assert_eq!(
-    //         Render::<Unicode>::render_as_str(&frac!(5 / 24)).as_str(),
-    //         "5\u{2044}24"
-    //     );
-
-    //     assert_eq!(
-    //         Render::<Typst>::render_as_str(&frac!(5 / 24)).as_str(),
-    //         "(5)/(24)"
-    //     );
-    // }
 
     #[test]
     fn test_negate() {
         assert_eq!(
-            Render::<ItaTerminal>::render_as_str(&Negate(Uint(123))),
+            Render::<ItaTerminal>::render_as_str(&Signed::new_neg(Uint(123))),
             "1̅2̅3̅"
         );
-        assert_eq!(Render::<Unicode>::render_as_str(&Negate(Uint(123))), "−123");
+        assert_eq!(
+            Render::<Unicode>::render_as_str(&Signed::new_neg(Uint(123))),
+            "−123"
+        );
     }
 }
