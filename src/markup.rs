@@ -8,6 +8,7 @@
 //! specific needs of the library itself.
 
 use crate::frac::Frac;
+use either::Either;
 use fortuples::fortuples;
 
 /// A primitive in Curium's markup system. Any type that can represent itself using these pieces
@@ -44,6 +45,8 @@ impl Block {
     pub fn new_concatenation<T: IntoIterator<Item = Block>>(t: T) -> Self {
         Block::Concatenation(t.into_iter().collect())
     }
+
+    pub const NONE: Block = Block::Text(String::new());
 
     /// The fraction slash, represented using a normal slash in ASCII mode.
     pub const FRAC_SLASH: Block = Block::new_symbol("/", "\u{2044}");
@@ -88,12 +91,15 @@ pub trait RenderMode: Default {
 
 /// Trait representing the state of a document in progress that can be written to iteratively and
 /// then completed, returning a `String`.
-trait RenderCanvas<M: RenderMode> {
+pub trait RenderCanvas<M: RenderMode> {
     /// Initializes an empty document with the given mode.
     fn new_empty() -> Self;
 
     /// Renders an element.
     fn render_block(&mut self, block: &Block) -> &mut Self;
+
+    /// Pushes a raw string to the buffer. Use with caution!
+    fn render_raw(&mut self, string: &str) -> &mut Self;
 
     /// Completes writing, returning the output String.
     fn complete(self) -> String;
@@ -118,6 +124,12 @@ impl<M: RenderMode> RenderCanvas<M> for SimpleStringBuf<M> {
     /// Renders an element.
     fn render_block(&mut self, block: &Block) -> &mut Self {
         self.buf.push_str(self.mode.render_block(block).as_str());
+        self
+    }
+
+    /// Pushes a raw string to the buffer. Use with caution!
+    fn render_raw(&mut self, string: &str) -> &mut Self {
+        self.buf.push_str(string);
         self
     }
 
@@ -156,6 +168,15 @@ pub trait RenderComponents {
     fn components(&self) -> Self::Components;
 }
 
+impl<M: RenderMode, L: Render<M>, R: Render<M>> Render<M> for Either<L, R> {
+    fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
+        match self {
+            Self::Left(l) => l.render_to(c),
+            Self::Right(r) => r.render_to(c),
+        }
+    }
+}
+
 fortuples! {
     #[tuples::min_size(1)]
     impl<M: RenderMode> Render<M> for #Tuple
@@ -182,9 +203,9 @@ where
 }
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
-pub struct Ascii {}
+pub struct Unicode {}
 
-impl RenderMode for Ascii {}
+impl RenderMode for Unicode {}
 
 impl RenderComponents for Frac {
     type Components = (Block, Block, Block);
@@ -207,7 +228,7 @@ mod tests {
     #[test]
     fn test_frac() {
         assert_eq!(
-            Render::<Ascii>::render_as_str(&frac!(5 / 24)).as_str(),
+            Render::<Unicode>::render_as_str(&frac!(5 / 24)).as_str(),
             "5\u{2044}24"
         );
     }

@@ -5,6 +5,7 @@
 #[macro_use]
 extern crate uom;
 
+pub mod components;
 pub mod element;
 pub mod frac;
 pub mod isometry;
