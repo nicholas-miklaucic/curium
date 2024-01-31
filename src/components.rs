@@ -16,29 +16,28 @@ impl RenderComponents for Uint {
     }
 }
 
+impl<M: RenderMode, L: Render<M>, R: Render<M>> Render<M> for Either<L, R> {
+    fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
+        match self {
+            Self::Left(l) => l.render_to(c),
+            Self::Right(r) => r.render_to(c),
+        }
+    }
+}
+
 /// Signed integer.
 #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Int(i128);
 
 impl RenderComponents for Int {
-    type Components = Either<Negate<Uint>, Uint>;
+    type Components = Either<(Block, Uint), Uint>;
 
     fn components(&self) -> Self::Components {
         if self.0 < 0 {
-            Either::Left(Negate::new(Uint(self.0.unsigned_abs())))
+            Either::Left((Block::MINUS_SIGN, Uint(self.0.unsigned_abs())))
         } else {
             Either::Right(Uint(self.0.unsigned_abs()))
         }
-    }
-}
-
-/// Negation, usually represented with a minus sign but
-#[derive(Debug, Default, Clone, Hash, PartialEq, Eq)]
-pub struct Negate<T>(T);
-
-impl<T: > Negate<T> {
-    fn new(t: T) -> Self {
-        Self { 0: t }
     }
 }
 
@@ -48,22 +47,19 @@ pub struct ItaTerminal {}
 
 impl RenderMode for ItaTerminal {}
 
-impl<T: Render<ItaTerminal>> Render<ItaTerminal> for Negate<T> {
-    fn render_to<'a, 'b, C: RenderCanvas<ItaTerminal>>(&'a self, c: &'b mut C) -> &'b mut C {
-        let out = self.0.render_as_str();
-        let neg_out = out.chars().flat_map(|c| [c, '\u{0305}']);
-        let neg_out: String = neg_out.collect();
-        c.render_raw(neg_out.as_str());
-        c
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::markup::Unicode;
+
     use super::*;
 
     #[test]
     fn test_negate() {
+        assert_eq!(Render::<Unicode>::render_as_str(&Int(-5)).as_str(), "-5");
 
+        assert_eq!(
+            Render::<ItaTerminal>::render_as_str(&Int(-5)).as_str(),
+            "5\u{0305}"
+        );
     }
 }

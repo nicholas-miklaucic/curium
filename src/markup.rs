@@ -8,7 +8,6 @@
 //! specific needs of the library itself.
 
 use crate::frac::Frac;
-use either::Either;
 use fortuples::fortuples;
 
 /// A primitive in Curium's markup system. Any type that can represent itself using these pieces
@@ -168,15 +167,6 @@ pub trait RenderComponents {
     fn components(&self) -> Self::Components;
 }
 
-impl<M: RenderMode, L: Render<M>, R: Render<M>> Render<M> for Either<L, R> {
-    fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
-        match self {
-            Self::Left(l) => l.render_to(c),
-            Self::Right(r) => r.render_to(c),
-        }
-    }
-}
-
 fortuples! {
     #[tuples::min_size(1)]
     impl<M: RenderMode> Render<M> for #Tuple
@@ -203,6 +193,11 @@ where
 }
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct Typst {}
+
+impl RenderMode for Typst {}
+
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct Unicode {}
 
 impl RenderMode for Unicode {}
@@ -210,12 +205,18 @@ impl RenderMode for Unicode {}
 impl RenderComponents for Frac {
     type Components = (Block, Block, Block);
 
-    fn components(&self) -> Self::Components {
+    default fn components(&self) -> Self::Components {
         (
             Block::Text(format!("{}", self.numerator)),
             Block::FRAC_SLASH,
             Block::Text(format!("{}", Self::DENOM)),
         )
+    }
+}
+
+impl Render<Typst> for Frac {
+    fn render_to<'a, 'b, C: RenderCanvas<Typst>>(&'a self, c: &'b mut C) -> &'b mut C {
+        c.render_raw(format!("({})/({})", self.numerator, Self::DENOM).as_str())
     }
 }
 
@@ -230,6 +231,11 @@ mod tests {
         assert_eq!(
             Render::<Unicode>::render_as_str(&frac!(5 / 24)).as_str(),
             "5\u{2044}24"
+        );
+
+        assert_eq!(
+            Render::<Typst>::render_as_str(&frac!(5 / 24)).as_str(),
+            "(5)/(24)"
         );
     }
 }
