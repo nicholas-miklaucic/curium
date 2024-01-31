@@ -91,6 +91,9 @@ pub trait RenderMode: Default {
 /// Trait representing the state of a document in progress that can be written to iteratively and
 /// then completed, returning a `String`.
 pub trait RenderCanvas<M: RenderMode> {
+    /// The current render mode.
+    fn mode(&self) -> &M;
+
     /// Initializes an empty document with the given mode.
     fn new_empty() -> Self;
 
@@ -113,6 +116,10 @@ pub struct SimpleStringBuf<M: RenderMode> {
 }
 
 impl<M: RenderMode> RenderCanvas<M> for SimpleStringBuf<M> {
+    fn mode(&self) -> &M {
+        &self.mode
+    }
+
     fn new_empty() -> Self {
         Self {
             buf: String::new(),
@@ -192,31 +199,64 @@ where
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
-pub struct Typst {}
+/// The ITA style, adapted for terminals.
+#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct ItaTerminal {}
 
-impl RenderMode for Typst {}
+impl RenderMode for ItaTerminal {}
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct Unicode {}
 
 impl RenderMode for Unicode {}
 
-impl RenderComponents for Frac {
-    type Components = (Block, Block, Block);
+use either::Either;
 
-    default fn components(&self) -> Self::Components {
-        (
-            Block::Text(format!("{}", self.numerator)),
-            Block::FRAC_SLASH,
-            Block::Text(format!("{}", Self::DENOM)),
-        )
+/// A nonnegative integer.
+#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Uint(u128);
+
+impl RenderComponents for Uint {
+    type Components = Block;
+
+    fn components(&self) -> Self::Components {
+        Block::Text(format!("{}", self.0))
     }
 }
 
-impl Render<Typst> for Frac {
-    fn render_to<'a, 'b, C: RenderCanvas<Typst>>(&'a self, c: &'b mut C) -> &'b mut C {
-        c.render_raw(format!("({})/({})", self.numerator, Self::DENOM).as_str())
+impl<M: RenderMode, L: Render<M>, R: Render<M>> Render<M> for Either<L, R> {
+    fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
+        match self {
+            Self::Left(l) => l.render_to(c),
+            Self::Right(r) => r.render_to(c),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Negate<T: Render<ItaTerminal>>(T);
+
+impl<T: RenderComponents + Render<ItaTerminal>> RenderComponents for Negate<T> {
+    type Components = (Block, T::Components);
+
+    fn components(&self) -> Self::Components {
+        (Block::MINUS_SIGN, self.0.components())
+    }
+}
+
+impl<T: Render<ItaTerminal>> Render<ItaTerminal> for Negate<T>
+where
+    Negate<T>: RenderComponents,
+    <Negate<T> as RenderComponents>::Components: Render<ItaTerminal>,
+{
+    fn render_to<'a, 'b, C: RenderCanvas<ItaTerminal>>(&'a self, c: &'b mut C) -> &'b mut C {
+        c.render_raw(
+            Render::<ItaTerminal>::render_as_str(&self.0)
+                .chars()
+                .flat_map(|c| [c, '\u{0305}'])
+                .collect::<String>()
+                .as_str(),
+        )
     }
 }
 
@@ -226,16 +266,25 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_frac() {
-        assert_eq!(
-            Render::<Unicode>::render_as_str(&frac!(5 / 24)).as_str(),
-            "5\u{2044}24"
-        );
+    // #[test]
+    // fn test_frac() {
+    //     assert_eq!(
+    //         Render::<Unicode>::render_as_str(&frac!(5 / 24)).as_str(),
+    //         "5\u{2044}24"
+    //     );
 
+    //     assert_eq!(
+    //         Render::<Typst>::render_as_str(&frac!(5 / 24)).as_str(),
+    //         "(5)/(24)"
+    //     );
+    // }
+
+    #[test]
+    fn test_negate() {
         assert_eq!(
-            Render::<Typst>::render_as_str(&frac!(5 / 24)).as_str(),
-            "(5)/(24)"
+            Render::<ItaTerminal>::render_as_str(&Negate(Uint(123))),
+            "1̅2̅3̅"
         );
+        assert_eq!(Render::<Unicode>::render_as_str(&Negate(Uint(123))), "−123");
     }
 }

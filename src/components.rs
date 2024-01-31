@@ -1,65 +1,83 @@
-//! Defines markup primitives for rendering output.
+// //! Defines markup primitives for rendering output.
 
-use either::Either;
+// use either::Either;
 
-use crate::markup::{Block, Render, RenderCanvas, RenderComponents, RenderMode};
+// use crate::markup::{Block, Render, RenderCanvas, RenderComponents, RenderMode};
 
-/// A nonnegative integer.
-#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Uint(u128);
+// /// A nonnegative integer.
+// #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
+// pub struct Uint(u128);
 
-impl RenderComponents for Uint {
-    type Components = Block;
+// impl RenderComponents for Uint {
+//     type Components = Block;
 
-    fn components(&self) -> Self::Components {
-        Block::Text(format!("{}", self.0))
-    }
-}
+//     fn components(&self) -> Self::Components {
+//         Block::Text(format!("{}", self.0))
+//     }
+// }
 
-impl<M: RenderMode, L: Render<M>, R: Render<M>> Render<M> for Either<L, R> {
-    fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
-        match self {
-            Self::Left(l) => l.render_to(c),
-            Self::Right(r) => r.render_to(c),
-        }
-    }
-}
+// impl<M: RenderMode, L: Render<M>, R: Render<M>> Render<M> for Either<L, R> {
+//     fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
+//         match self {
+//             Self::Left(l) => l.render_to(c),
+//             Self::Right(r) => r.render_to(c),
+//         }
+//     }
+// }
 
-/// Signed integer.
-#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Int(i128);
+// /// Signed integer.
+// #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
+// pub struct Int(i128);
 
-impl RenderComponents for Int {
-    type Components = Either<(Block, Uint), Uint>;
+// impl RenderComponents for Int {
+//     type Components = Either<(Block, Uint), Uint>;
 
-    fn components(&self) -> Self::Components {
-        if self.0 < 0 {
-            Either::Left((Block::MINUS_SIGN, Uint(self.0.unsigned_abs())))
-        } else {
-            Either::Right(Uint(self.0.unsigned_abs()))
-        }
-    }
-}
+//     fn components(&self) -> Self::Components {
+//         if self.0 < 0 {
+//             Either::Left((Block::MINUS_SIGN, Uint(self.0.unsigned_abs())))
+//         } else {
+//             Either::Right(Uint(self.0.unsigned_abs()))
+//         }
+//     }
+// }
 
-/// The ITA style, adapted for terminals.
-#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct ItaTerminal {}
+// // impl RenderComponents for Frac {
+// //     type Components = (Block, Block, Block);
 
-impl RenderMode for ItaTerminal {}
+// //     default fn components(&self) -> Self::Components {
+// //         (
+// //             Block::Text(format!("{}", self.numerator)),
+// //             Block::FRAC_SLASH,
+// //             Block::Text(format!("{}", Self::DENOM)),
+// //         )
+// //     }
+// // }
 
-#[cfg(test)]
-mod tests {
-    use crate::markup::Unicode;
+// // impl Render<ItaTerminal> for Frac {
+// //     fn render_to<'a, 'b, C: RenderCanvas<ItaTerminal>>(&'a self, c: &'b mut C) -> &'b mut C {
+// //         c.render_raw(format!("({})/({})", self.numerator, Self::DENOM).as_str())
+// //     }
+// // }
 
-    use super::*;
+// /// The ITA style, adapted for terminals.
+// #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
+// pub struct ItaTerminal {}
 
-    #[test]
-    fn test_negate() {
-        assert_eq!(Render::<Unicode>::render_as_str(&Int(-5)).as_str(), "-5");
+// impl RenderMode for ItaTerminal {}
 
-        assert_eq!(
-            Render::<ItaTerminal>::render_as_str(&Int(-5)).as_str(),
-            "5\u{0305}"
-        );
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use crate::markup::Unicode;
+
+//     use super::*;
+
+//     #[test]
+//     fn test_negate() {
+//         assert_eq!(Render::<Unicode>::render_as_str(&Int(-5)).as_str(), "-5");
+
+//         assert_eq!(
+//             Render::<ItaTerminal>::render_as_str(&Int(-5)).as_str(),
+//             "5\u{0305}"
+//         );
+//     }
+// }
