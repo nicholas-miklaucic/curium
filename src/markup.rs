@@ -7,7 +7,6 @@
 //! The resulting markup is also just useful for a variety of UI applications, even outside of the
 //! specific needs of the library itself.
 
-use crate::frac::Frac;
 use fortuples::fortuples;
 
 /// A primitive in Curium's markup system. Any type that can represent itself using these pieces
@@ -19,8 +18,27 @@ pub enum Block {
     /// A symbol with multiple representations depending on available characters and environment,
     /// such as a right arrow.
     Symbol(Symbol),
-    /// A concatenation of blocks that are inseparable, like two symbols one after another.
-    Concatenation(Vec<Block>),
+    /// An unsigned integer. Should be used with `Signed` unless signs are never needed.
+    Uint(u64),
+    /// A unsigned float. Should be used with `Signed` unless signs are never needed.
+    Ufloat(f64),
+    /// A signed number. Assumes the first input is the *unsigned* version.
+    Signed(Box<Block>, Sign),
+    /// A fraction with numerator and denominator.
+    Fraction(Box<Block>, Box<Block>),
+    /// A point in 3D space.
+    Point3D(Box<Block>, Box<Block>, Box<Block>),
+    /// A vector in the mathematical sense.
+    Vector(Vec<Block>),
+}
+
+/// The sign of a number. This is typographic, not numeric: -0 is not the same as +0.
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
+pub enum Sign {
+    /// Positive, with either `+` or nothing.
+    Positive,
+    /// Negative, with `-`.
+    Negative,
 }
 
 /// A symbol that can be represented using Unicode or ASCII, such as an arrow →.
@@ -33,262 +51,353 @@ pub struct Symbol {
 impl Symbol {}
 
 impl Block {
-    pub fn new_text<T: Into<String>>(string: T) -> Self {
-        Block::Text(string.into())
+    pub fn new_text(text: &str) -> Self {
+        Self::Text(text.to_string())
     }
 
     pub const fn new_symbol(ascii: &'static str, unicode: &'static str) -> Self {
-        Block::Symbol(Symbol { ascii, unicode })
+        Self::Symbol(Symbol { ascii, unicode })
     }
 
-    pub fn new_concatenation<T: IntoIterator<Item = Block>>(t: T) -> Self {
-        Block::Concatenation(t.into_iter().collect())
+    pub fn new_uint(uint: u64) -> Self {
+        Self::Uint(uint)
     }
 
-    pub const NONE: Block = Block::Text(String::new());
+    pub fn new_int(int: i64) -> Self {
+        let uint = Self::new_uint(int.unsigned_abs());
+        if int < 0 {
+            Self::Signed(uint.into(), Sign::Negative)
+        } else {
+            Self::Signed(uint.into(), Sign::Positive)
+        }
+    }
+
+    pub fn new_float(float: f64) -> Self {
+        let ufloat = Self::Ufloat(float.abs());
+        if float < 0. {
+            Self::Signed(ufloat.into(), Sign::Negative)
+        } else {
+            Self::Signed(ufloat.into(), Sign::Positive)
+        }
+    }
 
     /// The fraction slash, represented using a normal slash in ASCII mode.
     pub const FRAC_SLASH: Block = Block::new_symbol("/", "\u{2044}");
 
     /// The minus sign, falling back to a hyphen.
     pub const MINUS_SIGN: Block = Block::new_symbol("-", "\u{2212}");
+
+    /// The plus sign.
+    pub const PLUS_SIGN: Block = Block::new_symbol("+", "＋");
+
+    /// Symbol x.
+    pub const X: Block = Block::new_symbol("x", "\u{1D465}");
+    /// Symbol y
+    pub const Y: Block = Block::new_symbol("y", "\u{1D466}");
+    /// Symbol z.
+    pub const Z: Block = Block::new_symbol("z", "\u{1D467}");
 }
 
-/// A render *mode*: an environment in which information can be displayed.
-pub trait RenderMode: Default {
+/// A document in which information can be rendered.
+pub trait RenderDoc {
+    /// Writes raw text to the document. Used to support simple overriding of the storage for text
+    /// without changing the way information is serialized.
+    fn write_raw<T: AsRef<str>>(&mut self, raw: T) -> &mut Self;
+
+    /// Returns the final document as a `String`. This is where preambles, linking, TOCs, or similar
+    /// document-level processing should be done.
+    fn complete(self) -> String;
+
     /// Renders plain text. This is where, for instance, escaping should happen: it's assumed that
     /// any characters in the input are intended to be represented as they are, not as control
     /// codes or markup.
-    fn render_text(&mut self, text: &str) -> String {
-        text.to_string()
+    fn render_text(&mut self, text: &str) -> &mut Self {
+        self.write_raw(text)
     }
 
     /// Renders a symbol.
-    fn render_symbol(&mut self, sym: &Symbol) -> String {
-        sym.unicode.to_string()
+    fn render_symbol(&mut self, sym: &Symbol) -> &mut Self {
+        self.write_raw(sym.unicode)
     }
 
-    /// Renders a concatenation of other blocks. The default should work (one after another) most of
-    /// the time, but some modes may want to add spaces (if those aren't semantic) or do other
-    /// escaping.
-    fn render_concatenation<'a, C: IntoIterator<Item = &'a Block>>(&mut self, blocks: C) -> String {
-        blocks.into_iter().map(|b| self.render_block(b)).collect()
+    /// Renders an unsigned integer.
+    fn render_uint(&mut self, u: u64) -> &mut Self {
+        self.write_raw(u.to_string())
+    }
+
+    /// Renders an unsigned float.
+    fn render_ufloat(&mut self, f: f64) -> &mut Self {
+        self.write_raw(f.to_string())
+    }
+
+    /// Renders a signed number.
+    fn render_signed(&mut self, block: &Block, sign: &Sign) -> &mut Self {
+        match sign {
+            Sign::Positive => self.render_block(block),
+            Sign::Negative => self.render_block(&Block::MINUS_SIGN).render_block(block),
+        }
+    }
+
+    /// Renders a fraction.
+    fn render_fraction(&mut self, num: &Block, denom: &Block) -> &mut Self {
+        self.render_block(num)
+            .render_block(&Block::FRAC_SLASH)
+            .render_block(denom)
+    }
+
+    /// Renders a point in 3D space.
+    fn render_point3d(&mut self, x: &Block, y: &Block, z: &Block) -> &mut Self {
+        self.render_blocks(&[
+            Block::new_text("("),
+            x.clone(),
+            Block::new_text(","),
+            y.clone(),
+            Block::new_text(","),
+            z.clone(),
+            Block::new_text(")"),
+        ])
+    }
+
+    /// Renders a vector.
+    fn render_vector(&mut self, blocks: &[Block]) -> &mut Self {
+        let mut elements = vec![];
+        elements.push(Block::new_text("<"));
+        for block in blocks {
+            elements.push(block.clone());
+            elements.push(Block::new_text(","));
+        }
+        elements.pop();
+        elements.push(Block::new_text(">"));
+        self.render_blocks(&elements)
     }
 
     /// Render a block.
     ///
     /// When implementing [`RenderMode`], generally do not override this method. Instead, implement
     /// whichever branch methods you want to customize.
-    fn render_block(&mut self, block: &Block) -> String {
+    fn render_block(&mut self, block: &Block) -> &mut Self {
         match block {
-            Block::Text(t) => self.render_text(t),
+            Block::Text(text) => self.render_text(text),
             Block::Symbol(sym) => self.render_symbol(sym),
-            Block::Concatenation(blocks) => self.render_concatenation(blocks),
+            Block::Uint(u) => self.render_uint(*u),
+            Block::Ufloat(f) => self.render_ufloat(*f),
+            Block::Signed(block, sign) => self.render_signed(block, sign),
+            Block::Fraction(num, denom) => self.render_fraction(num, denom),
+            Block::Point3D(x, y, z) => self.render_point3d(x, y, z),
+            Block::Vector(blocks) => self.render_blocks(blocks),
         }
     }
-}
 
-/// Trait representing the state of a document in progress that can be written to iteratively and
-/// then completed, returning a `String`.
-pub trait RenderCanvas<M: RenderMode> {
-    /// The current render mode.
-    fn mode(&self) -> &M;
-
-    /// Initializes an empty document with the given mode.
-    fn new_empty() -> Self;
-
-    /// Renders an element.
-    fn render_block(&mut self, block: &Block) -> &mut Self;
-
-    /// Pushes a raw string to the buffer. Use with caution!
-    fn render_raw(&mut self, string: &str) -> &mut Self;
-
-    /// Completes writing, returning the output String.
-    fn complete(self) -> String;
-}
-
-/// A buffer into which elements can be rendered. Essentially a [`RenderMode`] that can change,
-/// backed by a string. Does not keep track of rendered state outside the mode.
-#[derive(Debug, Default, Clone)]
-pub struct SimpleStringBuf<M: RenderMode> {
-    buf: String,
-    mode: M,
-}
-
-impl<M: RenderMode> RenderCanvas<M> for SimpleStringBuf<M> {
-    fn mode(&self) -> &M {
-        &self.mode
+    /// Renders an iterator of blocks, one after another.
+    fn render_blocks<'a, I>(&mut self, blocks: I) -> &mut Self
+    where
+        I: IntoIterator<Item = &'a Block>,
+    {
+        for block in blocks {
+            self.render_block(block);
+        }
+        self
     }
 
-    fn new_empty() -> Self {
+    /// Renders any element.
+    fn render_element<T: Render>(&mut self, el: &T) -> &mut Self
+    where
+        Self: Sized,
+    {
+        el.render_to(self)
+    }
+}
+
+/// A render environment specification.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct SimpleRenderConfig {
+    /// Whether Unicode characters are supported. If `false`, only ASCII is used wherever possible.
+    pub unicode: bool,
+    /// Whether the ITA combining overline notation is used to negate.
+    pub ita_minus: bool,
+}
+
+impl SimpleRenderConfig {
+    pub fn render_to_string<T: Render>(&self, el: &T) -> String {
+        let mut doc = SimpleRenderDoc::new_empty(self.clone());
+        doc.render_element(el);
+        doc.complete()
+    }
+}
+
+/// A base implementation of [`RenderDoc`] that allows for basic configuration. Writes to a
+/// [`String`].
+pub struct SimpleRenderDoc {
+    /// The buffer.
+    buf: String,
+    /// The feature flags for the renderer.
+    config: SimpleRenderConfig,
+}
+
+impl SimpleRenderDoc {
+    pub fn new_empty(conf: SimpleRenderConfig) -> Self {
         Self {
             buf: String::new(),
-            mode: M::default(),
+            config: conf,
         }
     }
+}
 
-    /// Renders an element.
-    fn render_block(&mut self, block: &Block) -> &mut Self {
-        self.buf.push_str(self.mode.render_block(block).as_str());
+impl RenderDoc for SimpleRenderDoc {
+    fn write_raw<T: AsRef<str>>(&mut self, raw: T) -> &mut Self {
+        self.buf.push_str(raw.as_ref());
         self
     }
 
-    /// Pushes a raw string to the buffer. Use with caution!
-    fn render_raw(&mut self, string: &str) -> &mut Self {
-        self.buf.push_str(string);
-        self
-    }
-
-    /// Completes writing, returning the output String.
     fn complete(self) -> String {
         self.buf
     }
-}
 
-pub trait Render<M: RenderMode> {
-    fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C;
+    fn render_text(&mut self, text: &str) -> &mut Self {
+        self.write_raw(text)
+    }
 
-    /// Renders to an empty string.
-    fn render_as_str(&self) -> String {
-        let mut buf = SimpleStringBuf::<M>::new_empty();
-        self.render_to(&mut buf);
-        buf.complete()
+    fn render_symbol(&mut self, sym: &Symbol) -> &mut Self {
+        if self.config.unicode {
+            self.write_raw(sym.unicode)
+        } else {
+            self.write_raw(sym.ascii)
+        }
+    }
+
+    fn render_uint(&mut self, u: u64) -> &mut Self {
+        self.write_raw(u.to_string())
+    }
+
+    fn render_ufloat(&mut self, f: f64) -> &mut Self {
+        self.write_raw(f.to_string())
+    }
+
+    fn render_signed(&mut self, block: &Block, sign: &Sign) -> &mut Self {
+        if self.config.ita_minus && self.config.unicode {
+            let join_char = match sign {
+                Sign::Positive => '\u{200b}',
+                // zero-width space: trick nalgebra into formatting correctly
+                Sign::Negative => '\u{0305}',
+            };
+            let abs = self.config.render_to_string(block);
+            self.write_raw(abs.chars().flat_map(|c| [c, join_char]).collect::<String>())
+        } else if let Sign::Positive = sign {
+            self.render_block(block)
+        } else {
+            self.render_blocks(&[Block::MINUS_SIGN, block.clone()])
+        }
+    }
+
+    fn render_fraction(&mut self, num: &Block, denom: &Block) -> &mut Self {
+        self.render_block(num)
+            .render_block(&Block::FRAC_SLASH)
+            .render_block(denom)
     }
 }
 
-impl<M> Render<M> for Block
-where
-    M: RenderMode,
-{
-    fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
-        c.render_block(self)
+pub const ASCII: SimpleRenderConfig = SimpleRenderConfig {
+    unicode: false,
+    ita_minus: false,
+};
+
+pub const UNICODE: SimpleRenderConfig = SimpleRenderConfig {
+    unicode: true,
+    ita_minus: false,
+};
+
+pub const ITA: SimpleRenderConfig = SimpleRenderConfig {
+    unicode: true,
+    ita_minus: true,
+};
+
+pub const DISPLAY: SimpleRenderConfig = UNICODE;
+
+/// Trait for objects renderable in Curium's markup as primitives.
+pub trait RenderBlocks {
+    fn components(&self) -> Vec<Block>;
+}
+
+impl RenderBlocks for Block {
+    fn components(&self) -> Vec<Block> {
+        vec![self.clone()]
     }
 }
 
-/// Trait for types that can be rendered by concatenating smaller pieces.
-pub trait RenderComponents {
-    /// The type of the components.
-    type Components;
-
-    /// Decompose self into components.
-    fn components(&self) -> Self::Components;
+impl RenderBlocks for Vec<Block> {
+    fn components(&self) -> Vec<Block> {
+        self.clone()
+    }
 }
+
+impl<const N: usize> RenderBlocks for &[Block; N] {
+    fn components(&self) -> Vec<Block> {
+        self.to_vec()
+    }
+}
+
+macro_rules! render_uints {
+    ($t:ident) => {
+        impl RenderBlocks for $t {
+            fn components(&self) -> Vec<Block> {
+                vec![Block::new_uint(*self as u64)]
+            }
+        }
+    };
+}
+render_uints!(u8);
+render_uints!(u16);
+render_uints!(u32);
+render_uints!(u64);
+render_uints!(u128);
+
+macro_rules! render_ints {
+    ($t:ident) => {
+        impl RenderBlocks for $t {
+            fn components(&self) -> Vec<Block> {
+                vec![Block::new_int(*self as i64)]
+            }
+        }
+    };
+}
+render_ints!(i8);
+render_ints!(i16);
+render_ints!(i32);
+render_ints!(i64);
+
+macro_rules! render_floats {
+    ($t:ident) => {
+        impl RenderBlocks for $t {
+            fn components(&self) -> Vec<Block> {
+                vec![Block::new_float(*self as f64)]
+            }
+        }
+    };
+}
+render_floats!(f32);
+render_floats!(f64);
 
 fortuples! {
     #[tuples::min_size(1)]
-    impl<M: RenderMode> Render<M> for #Tuple
-    where
-        #(#Member: Render<M>),*
-    {
-        fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
-            #(#self.render_to(c);)*
-
-            c
+    impl RenderBlocks for #Tuple
+    where #(#Member: RenderBlocks),* {
+        fn components(&self) -> Vec<Block> {
+            let mut blocks = vec![];
+            #(blocks.extend_from_slice(&#self.components());)*
+            blocks
         }
     }
 }
 
-impl<T, M> Render<M> for T
-where
-    T: RenderComponents,
-    T::Components: Render<M>,
-    M: RenderMode,
-{
-    default fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
-        self.components().render_to(c)
-    }
+/// Trait for objects that are rendered in any fashion. Can support more complex logic than simple
+/// decomposition, but in general this should not be implemented directly.
+pub trait Render {
+    fn render_to<'b, D: RenderDoc>(&self, d: &'b mut D) -> &'b mut D;
 }
 
-/// The ITA style, adapted for terminals.
-#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct ItaTerminal {}
-
-impl RenderMode for ItaTerminal {}
-
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
-pub struct Unicode {}
-
-impl RenderMode for Unicode {}
-
-use either::Either;
-
-/// A nonnegative integer.
-#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Uint(pub u128);
-
-impl RenderComponents for Uint {
-    type Components = Block;
-
-    fn components(&self) -> Self::Components {
-        Block::Text(format!("{}", self.0))
-    }
-}
-
-impl<M: RenderMode, L: Render<M>, R: Render<M>> Render<M> for Either<L, R> {
-    fn render_to<'a, 'b, C: RenderCanvas<M>>(&'a self, c: &'b mut C) -> &'b mut C {
-        match self {
-            Self::Left(l) => l.render_to(c),
-            Self::Right(r) => r.render_to(c),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Signed<T: Render<ItaTerminal>> {
-    pub unsigned: T,
-    pub has_neg_sign: bool,
-}
-
-impl<T: Render<ItaTerminal>> Signed<T> {
-    pub fn new(t: T, is_neg: bool) -> Self {
-        Self {
-            unsigned: t,
-            has_neg_sign: is_neg,
-        }
-    }
-    pub fn new_pos(t: T) -> Self {
-        Self {
-            unsigned: t,
-            has_neg_sign: false,
-        }
-    }
-
-    pub fn new_neg(t: T) -> Self {
-        Self {
-            unsigned: t,
-            has_neg_sign: true,
-        }
-    }
-}
-
-impl<T: RenderComponents + Render<ItaTerminal>> RenderComponents for Signed<T> {
-    type Components = Either<(Block, T::Components), T::Components>;
-
-    fn components(&self) -> Self::Components {
-        if self.has_neg_sign {
-            Either::Left((Block::MINUS_SIGN, self.unsigned.components()))
-        } else {
-            Either::Right(self.unsigned.components())
-        }
-    }
-}
-
-impl<T: Render<ItaTerminal>> Render<ItaTerminal> for Signed<T>
-where
-    Signed<T>: RenderComponents,
-    <Signed<T> as RenderComponents>::Components: Render<ItaTerminal>,
-{
-    default fn render_to<'a, 'b, C: RenderCanvas<ItaTerminal>>(
-        &'a self,
-        c: &'b mut C,
-    ) -> &'b mut C {
-        c.render_raw(
-            Render::<ItaTerminal>::render_as_str(&self.unsigned)
-                .chars()
-                .flat_map(|c| [c, '\u{0305}'])
-                .collect::<String>()
-                .as_str(),
-        )
+impl<T: RenderBlocks> Render for T {
+    fn render_to<'b, D: RenderDoc>(&self, d: &'b mut D) -> &'b mut D {
+        d.render_blocks(&self.components())
     }
 }
 
@@ -298,13 +407,13 @@ mod tests {
 
     #[test]
     fn test_negate() {
-        assert_eq!(
-            Render::<ItaTerminal>::render_as_str(&Signed::new_neg(Uint(123))),
-            "1̅2̅3̅"
-        );
-        assert_eq!(
-            Render::<Unicode>::render_as_str(&Signed::new_neg(Uint(123))),
-            "−123"
-        );
+        assert_eq!(UNICODE.render_to_string(&-123).as_str(), "\u{2212}123");
+
+        assert_eq!(ITA.render_to_string(&-123).as_str(), "1̅2̅3̅");
+    }
+
+    #[test]
+    fn test_tuple() {
+        assert_eq!(UNICODE.render_to_string(&(1, 2)).as_str(), "12");
     }
 }

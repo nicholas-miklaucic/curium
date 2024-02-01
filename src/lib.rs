@@ -1,14 +1,14 @@
 // frac!(-1) gets expanded to frac!(-1 * Frac::DENOM). I don't want to change this.
 #![allow(clippy::neg_multiply)]
-#![feature(min_specialization)]
 
 #[macro_use]
 extern crate uom;
 
-pub mod components;
+// pub mod components;
 pub mod element;
 pub mod frac;
 pub mod isometry;
+pub mod lattice;
 pub mod markup;
 pub mod symmop;
 pub mod units;

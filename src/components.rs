@@ -18,22 +18,10 @@ impl RenderComponents for Int {
     }
 }
 
-impl RenderComponents for (Uint, Block, Uint) {
-    type Components = (
-        <Uint as RenderComponents>::Components,
-        Block,
-        <Uint as RenderComponents>::Components,
-    );
+impl RenderComponents for Frac {
+    type Components = Signed<(Uint, Block, Uint)>;
 
     fn components(&self) -> Self::Components {
-        (self.0.components(), self.1, self.2.components())
-    }
-}
-
-impl RenderComponents for Frac {
-    type Components = <Signed<(Uint, Block, Uint)> as RenderComponents>::Components;
-
-    default fn components(&self) -> Self::Components {
         Signed::new(
             (
                 Uint(self.numerator.unsigned_abs() as u128),
@@ -42,7 +30,6 @@ impl RenderComponents for Frac {
             ),
             self.numerator < 0,
         )
-        .components()
     }
 }
 

@@ -4,15 +4,15 @@
 use approx::{AbsDiffEq, RelativeEq, UlpsEq};
 use nalgebra::{ComplexField, Field, RealField, SimdValue};
 use num_traits::{Float, FromPrimitive, Num, One, PrimInt, Signed, Zero};
-use phf::phf_map;
 use simba::{scalar::SubsetOf, simd::PrimitiveSimdValue};
 use std::{
     fmt::Display,
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign},
-    slice,
     str::FromStr,
 };
 use thiserror::Error;
+
+use crate::markup::{Block, RenderBlocks, DISPLAY};
 
 /// The base type used. We don't need large values here, ±32768 is more than enough.
 pub type BaseInt = i16;
@@ -787,65 +787,32 @@ impl Frac {
     }
 }
 
+impl RenderBlocks for Frac {
+    fn components(&self) -> Vec<Block> {
+        if self.numerator == 0 {
+            return vec![Block::new_int(0)];
+        }
+        let p = self.numerator.abs();
+        let d = Self::gcd(p, Self::DENOM);
+        let num = Block::new_int(self.numerator as i64 / d as i64);
+        let denom = Self::DENOM as u64 / d as u64;
+        if denom == 1 {
+            vec![num]
+        } else {
+            vec![Block::Fraction(num.into(), Block::new_uint(denom).into())]
+        }
+    }
+}
+
 impl std::fmt::Debug for Frac {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "frac!({:02}/{})", self.numerator, DENOM)
     }
 }
 
-/* impl BlockSequence for Frac {
-    fn blocks(&self) -> Vec<Block> {
-        let abs_num = self.numerator.abs();
-        let x = Frac::gcd(abs_num, DENOM);
-        let new_p = abs_num / x;
-        let new_q = DENOM / x;
-        let mut ans = vec![];
-        if new_q == 1 {
-            ans.push(Block::new_int(new_p));
-        } else {
-            ans.extend_from_slice(&[
-                Block::new_int(new_p),
-                Block::FRAC_SLASH,
-                Block::new_int(new_q),
-            ]);
-        };
-
-        ans
-    }
-}
-
-impl Render<ItaTerminal> for Frac {
-    fn render(&self, mode: &mut ItaTerminal) -> String {
-        let orig = mode.render_blocks(&self.blocks());
-        let out: Vec<&str> = orig.split('⁄').collect();
-        match &out[..] {
-            [num, denom] => {
-                let new_num: String = num
-                    .chars()
-                    .map(|c| match c {
-                        '1' => '¹',
-                        c => c,
-                    })
-                    .collect();
-
-                let new_denom: String = denom
-                    .chars()
-                    .map(|c| match c {
-                        '1' => '₁',
-                        '6' => '₆',
-                        c => c,
-                    })
-                    .collect();
-                format!("{new_num}⁄{new_denom}")
-            }
-            _ => orig,
-        }
-    }
-} */
-
 impl Display for Frac {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}", self.numerator, self::DENOM)
+        write!(f, "{}", DISPLAY.render_to_string(self))
     }
 }
 
@@ -875,7 +842,10 @@ macro_rules! frac {
 
 #[cfg(test)]
 mod tests {
+    use crate::markup::UNICODE;
+
     use super::*;
+
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -895,13 +865,47 @@ mod tests {
         assert_eq!(Frac::gcd(64, 8), 8);
     }
 
+    // #[test]
+    // fn test_ita_display() {
+    //     assert_eq!(format!("{}", Frac::new_with_numerator(0)), "0");
+    //     assert_eq!(format!("{}", Frac::new_with_numerator(-24)), "1̅");
+    //     assert_eq!(format!("{}", Frac::new_with_numerator(-9)), "3̅⁄8");
+    //     assert_eq!(format!("{}", Frac::new_with_numerator(-25)), "2̅5̅⁄24");
+    //     assert_eq!(format!("{}", Frac::new_with_numerator(-22)), "1̅1̅⁄12");
+    // }
+
     #[test]
-    fn test_display() {
-        assert_eq!(format!("{}", Frac::new_with_numerator(0)), "0");
-        assert_eq!(format!("{}", Frac::new_with_numerator(-24)), "̅1");
-        assert_eq!(format!("{}", Frac::new_with_numerator(-9)), "̅⅜");
-        assert_eq!(format!("{}", Frac::new_with_numerator(-25)), "−25/24");
-        assert_eq!(format!("{}", Frac::new_with_numerator(-22)), "−11/12");
+    fn test_unic_display() {
+        assert_eq!(
+            UNICODE
+                .render_to_string(&Frac::new_with_numerator(0))
+                .as_str(),
+            "0"
+        );
+        assert_eq!(
+            UNICODE
+                .render_to_string(&Frac::new_with_numerator(-24))
+                .as_str(),
+            "−1"
+        );
+        assert_eq!(
+            UNICODE
+                .render_to_string(&Frac::new_with_numerator(-9))
+                .as_str(),
+            "−3⁄8"
+        );
+        assert_eq!(
+            UNICODE
+                .render_to_string(&Frac::new_with_numerator(-25))
+                .as_str(),
+            "−25⁄24"
+        );
+        assert_eq!(
+            UNICODE
+                .render_to_string(&Frac::new_with_numerator(-22))
+                .as_str(),
+            "−11⁄12"
+        );
     }
 
     #[test]

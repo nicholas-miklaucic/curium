@@ -3,10 +3,15 @@
 use std::{ops::Mul, str::FromStr};
 
 use nalgebra::{Matrix3, Matrix3x4, Matrix4, RowVector4, Translation3, Vector3};
+use num_traits::{Signed, Zero};
 use simba::scalar::SupersetOf;
 use thiserror::Error;
 
-use crate::{frac::Frac, markup::Block};
+use crate::{
+    frac,
+    frac::Frac,
+    markup::{Block, RenderBlocks, DISPLAY},
+};
 
 #[derive(Debug, Error, Clone)]
 pub enum IsometryError {
@@ -74,6 +79,67 @@ impl Isometry {
         let m_inv: Matrix4<Frac> =
             Matrix4::from_iterator(float_m_inv.iter().map(|&fl| Frac::from_f64_unchecked(fl)));
         Self::new_affine(m_inv)
+    }
+}
+
+impl RenderBlocks for Isometry {
+    fn components(&self) -> Vec<Block> {
+        let mut comps = vec![];
+        for row in self.mat().row_iter().take(3) {
+            let mut terms = vec![];
+            for (i, entry) in row.iter().enumerate() {
+                if !entry.is_zero() {
+                    let basis = if i < 3 {
+                        [Block::X, Block::Y, Block::Z][i].clone()
+                    } else {
+                        Block::Text("".into())
+                    };
+                    if terms.is_empty() {
+                        // might start with minus
+
+                        // don't have -1x, but do have x - 1
+                        if entry.abs() != frac!(1) || i == 3 {
+                            terms.extend_from_slice(&entry.components());
+                            terms.push(basis);
+                        } else if *entry == frac!(-1) {
+                            terms.push(Block::Signed(
+                                basis.clone().into(),
+                                crate::markup::Sign::Negative,
+                            ))
+                        } else if *entry == frac!(1) {
+                            terms.push(Block::Signed(
+                                basis.clone().into(),
+                                crate::markup::Sign::Positive,
+                            ))
+                        }
+                    } else {
+                        // add sign, no need for + - stuff
+                        if entry.is_negative() {
+                            terms.push(Block::MINUS_SIGN.clone());
+                        } else {
+                            terms.push(Block::PLUS_SIGN.clone());
+                        }
+
+                        if entry.abs() != frac!(1) || i == 3 {
+                            // don't have x - 1y, but do have x - 1
+                            terms.extend_from_slice(&entry.abs().components());
+                        }
+                        terms.push(basis);
+                    }
+                }
+            }
+            if !comps.is_empty() {
+                comps.push(Block::Text(", ".into()))
+            }
+            comps.extend_from_slice(&terms)
+        }
+        comps
+    }
+}
+
+impl std::fmt::Display for Isometry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", DISPLAY.render_to_string(self))
     }
 }
 
@@ -159,7 +225,7 @@ mod tests {
     use nalgebra::matrix;
 
     use super::*;
-    use crate::frac;
+    use crate::{frac, markup::ASCII};
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -191,6 +257,15 @@ mod tests {
             iso1_p.mat(),
             iso1.mat()
         )
+    }
+
+    #[test]
+    fn test_ascii_display() {
+        for op_str in vec!["-y+3/4, -x+1/4, z+1/4", "x-y+3/4, -2x+1/4, -x+z"] {
+            let iso = Isometry::from_str(op_str).unwrap();
+            let iso_str = ASCII.render_to_string(&iso);
+            assert_eq!(iso_str, op_str);
+        }
     }
 
     #[test]
