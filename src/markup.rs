@@ -281,23 +281,6 @@ impl RenderDoc for SimpleRenderDoc {
     }
 }
 
-pub const ASCII: SimpleRenderConfig = SimpleRenderConfig {
-    unicode: false,
-    ita_minus: false,
-};
-
-pub const UNICODE: SimpleRenderConfig = SimpleRenderConfig {
-    unicode: true,
-    ita_minus: false,
-};
-
-pub const ITA: SimpleRenderConfig = SimpleRenderConfig {
-    unicode: true,
-    ita_minus: true,
-};
-
-pub const DISPLAY: SimpleRenderConfig = UNICODE;
-
 /// Trait for objects renderable in Curium's markup as primitives.
 pub trait RenderBlocks {
     fn components(&self) -> Vec<Block>;
@@ -385,6 +368,23 @@ impl<T: RenderBlocks> Render for T {
         d.render_blocks(&self.components())
     }
 }
+
+pub const ASCII: SimpleRenderConfig = SimpleRenderConfig {
+    unicode: false,
+    ita_minus: false,
+};
+
+pub const UNICODE: SimpleRenderConfig = SimpleRenderConfig {
+    unicode: true,
+    ita_minus: false,
+};
+
+pub const ITA: SimpleRenderConfig = SimpleRenderConfig {
+    unicode: true,
+    ita_minus: true,
+};
+
+pub const DISPLAY: SimpleRenderConfig = UNICODE;
 
 #[cfg(test)]
 mod tests {

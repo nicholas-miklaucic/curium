@@ -222,10 +222,16 @@ impl FromStr for Isometry {
 
 #[cfg(test)]
 mod tests {
+    use std::hash::Hash;
+
     use nalgebra::matrix;
+    use tabled::grid::config::{HorizontalLine, VerticalLine};
 
     use super::*;
-    use crate::{frac, markup::ASCII};
+    use crate::{
+        frac,
+        markup::{ASCII, ITA, UNICODE},
+    };
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -266,6 +272,49 @@ mod tests {
             let iso_str = ASCII.render_to_string(&iso);
             assert_eq!(iso_str, op_str);
         }
+    }
+
+    #[test]
+    fn test_fancy_table() {
+        let iso_p = Isometry::from_str("x-y-3/8z+3/4, -x+2y-z+1/4, x+3/2y-z+1/4").unwrap();
+
+        fn frac_to_md(f: Frac) -> String {
+            let f = ITA.render_to_string(&f).replace('⁄', "\u{0332}\n");
+            f
+        }
+        use std::collections::HashMap;
+        use tabled::{
+            settings::{format::Format, object::Rows, Alignment, Style, Theme},
+            Table,
+        };
+
+        let data = vec![[0; 4]; 3];
+        let mut table = Table::new(data);
+        let m = iso_p.mat();
+
+        let mut style = Theme::from_style(Style::rounded());
+        style.align_columns(Alignment::center());
+        let mut lines = HashMap::new();
+        lines.insert(
+            1,
+            HorizontalLine::new(' '.into(), ' '.into(), '│'.into(), '│'.into()),
+        );
+        style.set_lines_horizontal(lines);
+
+        let mut lines = HashMap::new();
+        for l in 1..4 {
+            lines.insert(
+                l,
+                VerticalLine::new(' '.into(), ' '.into(), '─'.into(), '─'.into()),
+            );
+        }
+        style.set_lines_vertical(lines);
+        table.with(style).modify(
+            Rows::new(..),
+            Format::positioned(|_, (row, col)| frac_to_md(m[(row, col)])),
+        );
+
+        println!("{table}");
     }
 
     #[test]
