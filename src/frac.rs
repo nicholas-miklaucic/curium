@@ -69,7 +69,7 @@ impl Frac {
         }
     }
 
-    /// Attempts to read a float, panicking if the float is invalid. See [`try_from_float`] for specifics.
+    /// Attempts to read a float, panicking if the float is invalid. See [`Frac::try_from_float`] for specifics.
     pub fn from_f64_unchecked(x: f64) -> Self {
         Self::try_from_float(x).unwrap()
     }

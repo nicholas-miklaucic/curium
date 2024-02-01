@@ -4,12 +4,12 @@
 #[macro_use]
 extern crate uom;
 
-// pub mod components;
 pub mod element;
 pub mod frac;
 pub mod isometry;
 pub mod lattice;
 pub mod markup;
+pub mod symbols;
 pub mod symmop;
 pub mod units;
 

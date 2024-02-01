@@ -7,6 +7,7 @@
 //! The resulting markup is also just useful for a variety of UI applications, even outside of the
 //! specific needs of the library itself.
 
+use crate::symbols::*;
 use fortuples::fortuples;
 
 /// A primitive in Curium's markup system. Any type that can represent itself using these pieces
@@ -80,22 +81,6 @@ impl Block {
             Self::Signed(ufloat.into(), Sign::Positive)
         }
     }
-
-    /// The fraction slash, represented using a normal slash in ASCII mode.
-    pub const FRAC_SLASH: Block = Block::new_symbol("/", "\u{2044}");
-
-    /// The minus sign, falling back to a hyphen.
-    pub const MINUS_SIGN: Block = Block::new_symbol("-", "\u{2212}");
-
-    /// The plus sign.
-    pub const PLUS_SIGN: Block = Block::new_symbol("+", "＋");
-
-    /// Symbol x.
-    pub const X: Block = Block::new_symbol("x", "\u{1D465}");
-    /// Symbol y
-    pub const Y: Block = Block::new_symbol("y", "\u{1D466}");
-    /// Symbol z.
-    pub const Z: Block = Block::new_symbol("z", "\u{1D467}");
 }
 
 /// A document in which information can be rendered.
@@ -134,14 +119,14 @@ pub trait RenderDoc {
     fn render_signed(&mut self, block: &Block, sign: &Sign) -> &mut Self {
         match sign {
             Sign::Positive => self.render_block(block),
-            Sign::Negative => self.render_block(&Block::MINUS_SIGN).render_block(block),
+            Sign::Negative => self.render_block(&MINUS_SIGN).render_block(block),
         }
     }
 
     /// Renders a fraction.
     fn render_fraction(&mut self, num: &Block, denom: &Block) -> &mut Self {
         self.render_block(num)
-            .render_block(&Block::FRAC_SLASH)
+            .render_block(&FRAC_SLASH)
             .render_block(denom)
     }
 
@@ -173,8 +158,8 @@ pub trait RenderDoc {
 
     /// Render a block.
     ///
-    /// When implementing [`RenderMode`], generally do not override this method. Instead, implement
-    /// whichever branch methods you want to customize.
+    /// When implementing [`RenderDoc`], generally do not override this method.
+    /// Instead, implement whichever branch methods you want to customize.
     fn render_block(&mut self, block: &Block) -> &mut Self {
         match block {
             Block::Text(text) => self.render_text(text),
@@ -285,13 +270,13 @@ impl RenderDoc for SimpleRenderDoc {
         } else if let Sign::Positive = sign {
             self.render_block(block)
         } else {
-            self.render_blocks(&[Block::MINUS_SIGN, block.clone()])
+            self.render_blocks(&[MINUS_SIGN, block.clone()])
         }
     }
 
     fn render_fraction(&mut self, num: &Block, denom: &Block) -> &mut Self {
         self.render_block(num)
-            .render_block(&Block::FRAC_SLASH)
+            .render_block(&FRAC_SLASH)
             .render_block(denom)
     }
 }

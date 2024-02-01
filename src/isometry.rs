@@ -90,7 +90,7 @@ impl RenderBlocks for Isometry {
             for (i, entry) in row.iter().enumerate() {
                 if !entry.is_zero() {
                     let basis = if i < 3 {
-                        [Block::X, Block::Y, Block::Z][i].clone()
+                        [crate::symbols::X, crate::symbols::Y, crate::symbols::Z][i].clone()
                     } else {
                         Block::Text("".into())
                     };
@@ -115,9 +115,9 @@ impl RenderBlocks for Isometry {
                     } else {
                         // add sign, no need for + - stuff
                         if entry.is_negative() {
-                            terms.push(Block::MINUS_SIGN.clone());
+                            terms.push(crate::symbols::MINUS_SIGN.clone());
                         } else {
-                            terms.push(Block::PLUS_SIGN.clone());
+                            terms.push(crate::symbols::PLUS_SIGN.clone());
                         }
 
                         if entry.abs() != frac!(1) || i == 3 {

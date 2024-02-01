@@ -406,11 +406,11 @@ impl SymmOp {
     /// Returns a normalized version, changing the representation of the SymmOp to comply with ITA
     /// conventions. The actual meaning and the associated isometry do not change.
     ///
-    /// An example of when normalization is necessary: positive rotation around the axis [1 -1 1]
-    /// and negative rotation around the axis [-1 1 -1] are equivalent. ITA uses the latter
+    /// An example of when normalization is necessary: positive rotation around the axis \[1 -1 1\]
+    /// and negative rotation around the axis \[-1 1 -1\] are equivalent. ITA uses the latter
     /// representation, for reasons that are unclear to me, and so when comparing `SymmOp` values to
     /// other references it's important to flip this around. In other cases, it makes a lot more
-    /// sense: the axis [001] is much more natural than its flipped equivalent.
+    /// sense: the axis \[001\] is much more natural than its flipped equivalent.
     pub fn conventional(&self) -> Self {
         // for some reason, the convention seems to be an even number of negative signs in the axis.
         // I have no idea why this is, and it's not explained at all in ITA, at least where I can
@@ -560,7 +560,7 @@ impl SymmOp {
         }
     }
 
-    /// Composition: equivalent to UV as matrices, or u o v as functions, where u is self and v is
+    /// Composition: equivalent to UV as matrices, or u ∘ v as functions, where u is self and v is
     /// other.
     pub fn do_after(&self, other: SymmOp) -> SymmOp {
         SymmOp::classify_affine(self.to_iso() * other.to_iso()).unwrap()
