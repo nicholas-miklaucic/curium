@@ -14,13 +14,76 @@ use nalgebra::{Matrix3, Matrix3x1, Matrix4, Vector3};
 use simba::scalar::SupersetOf;
 use thiserror::Error;
 
-/// An idealized lattice: an infinitely repeating set of points in 3D space. For any such set of
-/// points, there are many ways to describe the set using a basis: one such choice is a
-/// [`LatticeSetting`], not a [`BravaisLattice`]. The Bravais lattice groups can be understood as
-/// characterizing the translational subgroup of a crystal: every set of translations that keeps the
-/// repeating structure invariant is characterized by the Bravais lattice.
-#[derive(Debug, Clone, PartialEq)]
-pub enum BravaisLattice {}
+/// A lattice system, defined as a set of lattices that share a point group. Combined with a
+/// centering type, which defines the translation components, and the result is a unique Bravais
+/// lattice.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum LatticeSystem {
+    Triclinic,
+    Monoclinic,
+    Orthorhombic,
+    Tetragonal,
+    Hexagonal,
+    Rhombohedral,
+    Cubic,
+}
+
+/// The type of translations allowed for the lattice. Defines a Bravais lattice when combined with a
+/// lattice system.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum CenteringType {
+    Primitive,
+    BaseCentered,
+    BodyCentered,
+    FaceCentered,
+}
+
+#[allow(non_camel_case_types)]
+/// The Bravais lattice classes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BravaisLattice {
+    aP,
+    mP,
+    mS,
+    oP,
+    oS,
+    oI,
+    oF,
+    tP,
+    tI,
+    hR,
+    hP,
+    cP,
+    cI,
+    cF,
+}
+
+impl BravaisLattice {
+    /// Gets the centering type, which descries the translations that leave the lattice unchanged.
+    pub fn centering(&self) -> CenteringType {
+        match &self {
+            Self::aP | Self::mP | Self::oP | Self::tP | Self::hP | Self::cP => {
+                CenteringType::Primitive
+            }
+            Self::mS | Self::oS => CenteringType::BaseCentered,
+            Self::oI | Self::tI | Self::cI => CenteringType::BodyCentered,
+            Self::oF | Self::cF => CenteringType::FaceCentered,
+        }
+    }
+
+    /// Gets the lattice system, which describes the point group that leaves the lattice unchanged.
+    pub fn system(&self) -> LatticeSystem {
+        match &self {
+            Self::aP => LatticeSystem::Triclinic,
+            Self::mP | Self::mS => LatticeSystem::Monoclinic,
+            Self::oP | Self::oS | Self::oI | Self::oF => LatticeSystem::Orthorhombic,
+            Self::tP | Self::tI => LatticeSystem::Tetragonal,
+            Self::hR => LatticeSystem::Rhombohedral,
+            Self::hP => LatticeSystem::Hexagonal,
+            Self::cP | Self::cI | Self::cF => LatticeSystem::Cubic,
+        }
+    }
+}
 
 /// A particular manifestation of a lattice in 3D coordinates. Essentially a basis in 3D space.
 #[derive(Debug, Clone, PartialEq)]
