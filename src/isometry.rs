@@ -1,6 +1,6 @@
 //! Defines the symmetry operations in 3D space.
 
-use std::{ops::Mul, str::FromStr};
+use std::{borrow::Borrow, ops::Mul, str::FromStr};
 
 use nalgebra::{Matrix3, Matrix3x4, Matrix4, RowVector4, Translation3, Vector3};
 use num_traits::{Signed, Zero};
@@ -8,6 +8,7 @@ use simba::scalar::SupersetOf;
 use thiserror::Error;
 
 use crate::{
+    algebra::Group,
     frac,
     frac::Frac,
     markup::{Block, RenderBlocks, DISPLAY},
@@ -28,11 +29,17 @@ pub struct Isometry {
     m: Matrix4<Frac>,
 }
 
-impl Mul for Isometry {
-    type Output = Self;
+impl<T: AsRef<Isometry>> Mul<T> for Isometry {
+    type Output = Isometry;
 
-    fn mul(self, rhs: Isometry) -> Self::Output {
-        Self::new_affine(self.mat() * rhs.mat())
+    fn mul(self, rhs: T) -> Self::Output {
+        Self::new_affine(self.mat() * rhs.as_ref().mat())
+    }
+}
+
+impl AsRef<Isometry> for Isometry {
+    fn as_ref(&self) -> &Isometry {
+        self
     }
 }
 
@@ -70,8 +77,16 @@ impl Isometry {
     }
 }
 
-impl Isometry {
-    pub fn inv(&self) -> Self {
+impl<T: AsRef<Isometry>> Mul<T> for &Isometry {
+    type Output = Isometry;
+
+    fn mul(self, rhs: T) -> Self::Output {
+        Isometry::new_affine(self.mat() * rhs.as_ref().mat())
+    }
+}
+
+impl Group for Isometry {
+    fn inv(&self) -> Self {
         // 1.2.2.8 of ITA
         // we could probably implement Cramer's rule, but meh
         let float_m: Matrix4<f64> = self.m.to_subset_unchecked();
@@ -79,6 +94,14 @@ impl Isometry {
         let m_inv: Matrix4<Frac> =
             Matrix4::from_iterator(float_m_inv.iter().map(|&fl| Frac::from_f64_unchecked(fl)));
         Self::new_affine(m_inv)
+    }
+
+    fn identity() -> Self {
+        Self::new_rot_tau(Matrix3::identity(), Vector3::zeros())
+    }
+
+    fn op(&self, rhs: &Self) -> Self {
+        self * rhs
     }
 }
 

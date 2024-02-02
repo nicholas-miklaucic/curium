@@ -14,6 +14,7 @@ use num_traits::{FromPrimitive, Zero};
 use simba::scalar::SupersetOf;
 use thiserror::Error;
 
+use crate::algebra::Group;
 use crate::frac;
 use crate::{
     frac::{BaseInt, Frac, DENOM},
@@ -560,16 +561,19 @@ impl SymmOp {
             SymmOp::Glide(pl, tau) => (SymmOp::Reflection(*pl), *tau),
         }
     }
+}
 
-    /// Composition: equivalent to UV as matrices, or u ∘ v as functions, where u is self and v is
-    /// other.
-    pub fn do_after(&self, other: SymmOp) -> SymmOp {
-        SymmOp::classify_affine(self.to_iso() * other.to_iso()).unwrap()
+impl Group for SymmOp {
+    fn identity() -> Self {
+        SymmOp::Identity
     }
 
-    /// Inverse.
-    pub fn inv(&self) -> SymmOp {
+    fn inv(&self) -> SymmOp {
         SymmOp::classify_affine(self.to_iso().inv()).unwrap()
+    }
+
+    fn op(&self, rhs: &Self) -> Self {
+        SymmOp::classify_affine(self.to_iso() * rhs.to_iso()).unwrap()
     }
 }
 
@@ -1109,7 +1113,7 @@ mod tests {
             let tau = SymmOp::Translation(tau);
             // println!("rot {}\ntau {}", rot.to_iso().mat(), tau.to_iso().mat());
             // println!("combo {}", (tau.to_iso() * rot.to_iso()).mat());
-            let tau_rot = tau.do_after(rot);
+            let tau_rot = tau.op(&rot);
             // assert_eq!(tau_rot, op)
             let (m1, m2) = (tau_rot.to_iso().mat(), op.to_iso().mat());
             assert_eq!(m1, m2, "{m1} {m2}");

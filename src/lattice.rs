@@ -6,6 +6,7 @@
 //! is fundamentally the same regardless of which order the basis vectors are given.
 
 use crate::{
+    algebra::Group,
     isometry::Isometry,
     units::{angstrom, degree, radian, Angle, Length, Volume},
 };
