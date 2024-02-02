@@ -21,6 +21,7 @@ tabled = "*"
 
 [dev-dependencies]
 pretty_assertions = "1.4.0"
+proptest = "1.0.0"
 
 [build-dependencies]
 serde = "1.0.195"

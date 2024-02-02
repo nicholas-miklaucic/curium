@@ -146,7 +146,8 @@ impl std::fmt::Display for Isometry {
 impl TryFrom<Matrix4<Frac>> for Isometry {
     type Error = IsometryError;
 
-    /// Tries to convert from an affine matrix. If the matrix is not affine, returns an error.
+    /// Tries to convert from an affine matrix. If the matrix is not affine, then considers if a
+    /// hexagonal coordinate system results in a valid matrix.
     fn try_from(mat: Matrix4<Frac>) -> Result<Self, Self::Error> {
         if mat.row(3) != Matrix4::identity().row(3) {
             Err(IsometryError::NotHomogenous(mat))
@@ -222,15 +223,13 @@ impl FromStr for Isometry {
 
 #[cfg(test)]
 mod tests {
-    use std::hash::Hash;
-
     use nalgebra::matrix;
     use tabled::grid::config::{HorizontalLine, VerticalLine};
 
     use super::*;
     use crate::{
         frac,
-        markup::{ASCII, ITA, UNICODE},
+        markup::{ASCII, ITA},
     };
     use pretty_assertions::assert_eq;
 

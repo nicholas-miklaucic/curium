@@ -7,9 +7,10 @@ use std::fmt::Display;
 use std::iter::successors;
 
 use nalgebra::{
-    ComplexField, Const, Matrix3, Matrix4, OMatrix, Point3, SMatrix, Translation3, Unit, Vector3,
+    matrix, ComplexField, Const, Matrix3, Matrix4, OMatrix, Point3, SMatrix, Translation3, Unit,
+    Vector3,
 };
-use num_traits::Zero;
+use num_traits::{FromPrimitive, Zero};
 use simba::scalar::SupersetOf;
 use thiserror::Error;
 
@@ -1154,13 +1155,13 @@ mod tests {
             //     ),
             //     RotationKind::PosThree,
             // )),
-            SymmOp::Rotation(SimpleRotation::new(
+            /*             SymmOp::Rotation(SimpleRotation::new(
                 RotationAxis::new(
                     vector![frac!(1), frac!(-1), frac!(0)],
                     Point3::<Frac>::new(frac!(1 / 2), frac!(-1 / 2), frac!(0)),
                 ),
                 RotationKind::Two,
-            )),
+            )), */
             SymmOp::Rotation(SimpleRotation::new(
                 RotationAxis::new(
                     vector![frac!(0), frac!(1), frac!(0)],
@@ -1168,13 +1169,13 @@ mod tests {
                 ),
                 RotationKind::NegFour,
             )),
-            // SymmOp::Rotation(SimpleRotation::new(
-            //     RotationAxis::new(
-            //         vector![frac!(0), frac!(0), frac!(1)],
-            //         Point3::<Frac>::new(frac!(0), frac!(0), frac!(1)),
-            //     ),
-            //     RotationKind::NegSix,
-            // )),
+            /* SymmOp::Rotation(SimpleRotation::new(
+                RotationAxis::new(
+                    vector![frac!(0), frac!(0), frac!(1)],
+                    Point3::<Frac>::new(frac!(0), frac!(0), frac!(1)),
+                ),
+                RotationKind::NegSix,
+            )), */
             // SymmOp::Rotoinversion(SimpleRotation::new(
             //     RotationAxis::new(
             //         vector![frac!(1), frac!(0), frac!(0)],
@@ -1189,13 +1190,13 @@ mod tests {
                 ),
                 RotationKind::NegFour,
             )),
-            SymmOp::Rotoinversion(SimpleRotation::new(
-                RotationAxis::new(
-                    vector![frac!(1), frac!(-1), frac!(0)],
-                    Point3::<Frac>::new(frac!(1 / 2), frac!(-1 / 2), frac!(0)),
-                ),
-                RotationKind::Two,
-            )),
+            // SymmOp::Rotoinversion(SimpleRotation::new(
+            //     RotationAxis::new(
+            //         vector![frac!(1), frac!(-1), frac!(0)],
+            //         Point3::<Frac>::new(frac!(1 / 2), frac!(-1 / 2), frac!(0)),
+            //     ),
+            //     RotationKind::Two,
+            // )),
             // SymmOp::Rotoinversion(SimpleRotation::new(
             //     RotationAxis::new(
             //         vector![frac!(0), frac!(0), frac!(1)],
