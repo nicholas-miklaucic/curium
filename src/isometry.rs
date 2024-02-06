@@ -1,12 +1,23 @@
 //! Defines the symmetry operations in 3D space.
 
-use std::{borrow::Borrow, ops::Mul, str::FromStr};
+use std::{ops::Mul, str::FromStr};
 
-use nalgebra::{Matrix3, Matrix3x4, Matrix4, RowVector4, Translation3, Vector3};
+use nalgebra::{
+    DMatrix, DMatrixView, Dim, Matrix, Matrix3, Matrix3x4, Matrix4, OMatrix, RawStorage,
+    RowVector4, Translation3, Vector3,
+};
 use num_traits::{Signed, Zero};
 use simba::scalar::SupersetOf;
+use std::collections::HashMap;
+use tabled::grid::config::{HorizontalLine, VerticalLine};
+use tabled::{
+    settings::{format::Format, object::Rows, Alignment, Style, Theme},
+    Table,
+};
+
 use thiserror::Error;
 
+use crate::markup::ITA;
 use crate::{
     algebra::Group,
     frac,
@@ -162,7 +173,46 @@ impl RenderBlocks for Isometry {
 
 impl std::fmt::Display for Isometry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", DISPLAY.render_to_string(self))
+        // write!(f, "{}", DISPLAY.render_to_string(self));
+        write!(f, "{}", Self::tabled_matrix(self.m))
+    }
+}
+
+fn frac_to_md(f: Frac) -> String {
+    let f = ITA.render_to_string(&f).replace('⁄', "\u{0332}\n");
+    f
+}
+
+impl Isometry {
+    pub fn tabled_matrix<R: Dim, C: Dim, S: RawStorage<Frac, R, C>>(
+        m: Matrix<Frac, R, C, S>,
+    ) -> String {
+        let (h, w) = m.shape();
+        let rows = m.row_iter().map(|r| {
+            r.iter()
+                .map(|f: &frac::Frac| frac_to_md(*f))
+                .collect::<Vec<String>>()
+        });
+        let mut table = Table::from_iter(rows);
+
+        let mut style = Theme::from_style(Style::rounded());
+        style.align_columns(Alignment::center());
+        let mut lines = HashMap::new();
+        lines.insert(
+            1,
+            HorizontalLine::new(' '.into(), ' '.into(), '│'.into(), '│'.into()),
+        );
+        style.set_lines_horizontal(lines);
+
+        let mut lines = HashMap::new();
+        for l in 1..h {
+            lines.insert(
+                l,
+                VerticalLine::new(' '.into(), ' '.into(), '─'.into(), '─'.into()),
+            );
+        }
+        style.set_lines_vertical(lines);
+        format!("\n{}\n", table.with(style).to_string())
     }
 }
 
@@ -247,7 +297,6 @@ impl FromStr for Isometry {
 #[cfg(test)]
 mod tests {
     use nalgebra::matrix;
-    use tabled::grid::config::{HorizontalLine, VerticalLine};
 
     use super::*;
     use crate::{
@@ -255,6 +304,7 @@ mod tests {
         markup::{ASCII, ITA},
     };
     use pretty_assertions::assert_eq;
+    use proptest::proptest;
 
     #[test]
     fn test_identity() {
@@ -299,44 +349,6 @@ mod tests {
     #[test]
     fn test_fancy_table() {
         let iso_p = Isometry::from_str("x-y-3/8z+3/4, -x+2y-z+1/4, x+3/2y-z+1/4").unwrap();
-
-        fn frac_to_md(f: Frac) -> String {
-            let f = ITA.render_to_string(&f).replace('⁄', "\u{0332}\n");
-            f
-        }
-        use std::collections::HashMap;
-        use tabled::{
-            settings::{format::Format, object::Rows, Alignment, Style, Theme},
-            Table,
-        };
-
-        let data = vec![[0; 4]; 3];
-        let mut table = Table::new(data);
-        let m = iso_p.mat();
-
-        let mut style = Theme::from_style(Style::rounded());
-        style.align_columns(Alignment::center());
-        let mut lines = HashMap::new();
-        lines.insert(
-            1,
-            HorizontalLine::new(' '.into(), ' '.into(), '│'.into(), '│'.into()),
-        );
-        style.set_lines_horizontal(lines);
-
-        let mut lines = HashMap::new();
-        for l in 1..4 {
-            lines.insert(
-                l,
-                VerticalLine::new(' '.into(), ' '.into(), '─'.into(), '─'.into()),
-            );
-        }
-        style.set_lines_vertical(lines);
-        table.with(style).modify(
-            Rows::new(..),
-            Format::positioned(|_, (row, col)| frac_to_md(m[(row, col)])),
-        );
-
-        println!("{table}");
     }
 
     #[test]

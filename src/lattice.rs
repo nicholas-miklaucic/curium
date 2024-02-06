@@ -14,8 +14,9 @@ use nalgebra::{Matrix3, Matrix3x1, Matrix4, Vector3};
 use simba::scalar::SupersetOf;
 use thiserror::Error;
 
-/// A lattice system, defined as a set of lattices that share a point group. Combined with a
-/// centering type, which defines the translation components, and the result is a unique Bravais
+/// A lattice system, as defined in 2.1.1.1 of ITA. Describes the point symmetry of the lattice.
+/// Differs from [`LatticeSystem`] in the classification of hexagonal-family groups: crystal systems
+/// are based on the number (3 = trigonal, 6 = hexagonal), here it's based on the symmetry of the
 /// lattice.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LatticeSystem {
@@ -28,14 +29,40 @@ pub enum LatticeSystem {
     Cubic,
 }
 
+impl LatticeSystem {
+    /// Gets the crystal family. This converts `Trigonal` to `Hexagonal` and leaves everything
+    /// else unchanged.
+    pub fn family(&self) -> Self {
+        match *self {
+            Self::Rhombohedral => Self::Hexagonal,
+            other => other,
+        }
+    }
+}
+
 /// The type of translations allowed for the lattice. Defines a Bravais lattice when combined with a
-/// lattice system.
+/// lattice system. `SettingDependent`, denoted `S`, indicates A, B, C, or I depending on the group:
+/// these are equivalent up to labeling the axes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum CenteringType {
     Primitive,
-    BaseCentered,
     BodyCentered,
+    SettingDependent,
     FaceCentered,
+    Rhombohedral,
+}
+
+impl CenteringType {
+    /// Gets the letter describing each centering type, as given in Table 2.1.1.2 of ITA.
+    pub fn letter(&self) -> char {
+        match *self {
+            CenteringType::Primitive => 'P',
+            CenteringType::BodyCentered => 'I',
+            CenteringType::SettingDependent => 'S',
+            CenteringType::FaceCentered => 'F',
+            CenteringType::Rhombohedral => 'R',
+        }
+    }
 }
 
 #[allow(non_camel_case_types)]
@@ -61,17 +88,20 @@ pub enum BravaisLattice {
 impl BravaisLattice {
     /// Gets the centering type, which descries the translations that leave the lattice unchanged.
     pub fn centering(&self) -> CenteringType {
-        match &self {
+        match *self {
             Self::aP | Self::mP | Self::oP | Self::tP | Self::hP | Self::cP => {
                 CenteringType::Primitive
             }
-            Self::mS | Self::oS => CenteringType::BaseCentered,
+            Self::mS | Self::oS => CenteringType::SettingDependent,
             Self::oI | Self::tI | Self::cI => CenteringType::BodyCentered,
             Self::oF | Self::cF => CenteringType::FaceCentered,
+            Self::hR => CenteringType::Rhombohedral,
         }
     }
 
     /// Gets the lattice system, which describes the point group that leaves the lattice unchanged.
+    /// This means rhombohedral and hexagonal lattices are treated differently: one has a sixfold
+    /// rotation, the other does not.
     pub fn system(&self) -> LatticeSystem {
         match &self {
             Self::aP => LatticeSystem::Triclinic,
@@ -82,6 +112,13 @@ impl BravaisLattice {
             Self::hP => LatticeSystem::Hexagonal,
             Self::cP | Self::cI | Self::cF => LatticeSystem::Cubic,
         }
+    }
+
+    /// Gets the crystal family, defined as the superset of systems with the same number of free
+    /// parameters. In 3D, that means that `hR` is part of the hexagonal family and the rhombohedral
+    /// system.
+    pub fn family(&self) -> LatticeSystem {
+        self.system().family()
     }
 }
 
