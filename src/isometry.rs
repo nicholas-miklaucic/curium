@@ -187,7 +187,7 @@ impl Isometry {
     pub fn tabled_matrix<R: Dim, C: Dim, S: RawStorage<Frac, R, C>>(
         m: Matrix<Frac, R, C, S>,
     ) -> String {
-        let (h, w) = m.shape();
+        let (h, _w) = m.shape();
         let rows = m.row_iter().map(|r| {
             r.iter()
                 .map(|f: &frac::Frac| frac_to_md(*f))
@@ -344,11 +344,6 @@ mod tests {
             let iso_str = ASCII.render_to_string(&iso);
             assert_eq!(iso_str, op_str);
         }
-    }
-
-    #[test]
-    fn test_fancy_table() {
-        let iso_p = Isometry::from_str("x-y-3/8z+3/4, -x+2y-z+1/4, x+3/2y-z+1/4").unwrap();
     }
 
     #[test]

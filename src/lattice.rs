@@ -2,8 +2,9 @@
 //! [`crate::isometry::Isometry`] objects: a [`BravaisLattice`] is the idealized geometric group,
 //! with a defined geometric type and associated symmetry properties, and that lattice can in turn
 //! be represented in a [`LatticeSetting`] which is a particular realization of the lattice as a set
-//! of basis vectors. For example, a face-centered cubic `BravaisLattice` with the same total volume
-//! is fundamentally the same regardless of which order the basis vectors are given.
+//! of basis vectors. For example, a face-centered cubic [`BravaisLattice`] with the same total
+//! volume is fundamentally the same symmetry and same object regardless of which order the basis
+//! vectors are given, even if the coordinates used to describe an object differ by setting.
 
 use crate::{
     algebra::Group,
@@ -14,11 +15,43 @@ use nalgebra::{Matrix3, Matrix3x1, Matrix4, Vector3};
 use simba::scalar::SupersetOf;
 use thiserror::Error;
 
+#[cfg(test)]
+use proptest_derive::Arbitrary;
+
+/// A crystal family. Describes groups of lattices with the same number of free parameters and
+/// compatible point groups (in the sense of being subgroups of some supergroup.) There is only one
+/// hexagonal family that comprises rhombohedral and hexagonal lattice systems.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(Arbitrary))]
+pub enum CrystalFamily {
+    Triclinic,
+    Monoclinic,
+    Orthorhombic,
+    Tetragonal,
+    Hexagonal,
+    Cubic,
+}
+
+impl CrystalFamily {
+    /// Gets the letter describing each crystal family, as given in Table 2.1.1.1 of ITA.
+    pub fn letter(&self) -> char {
+        match *self {
+            CrystalFamily::Triclinic => 'a',
+            CrystalFamily::Monoclinic => 'm',
+            CrystalFamily::Orthorhombic => 'o',
+            CrystalFamily::Tetragonal => 't',
+            CrystalFamily::Hexagonal => 'h',
+            CrystalFamily::Cubic => 'c',
+        }
+    }
+}
+
 /// A lattice system, as defined in 2.1.1.1 of ITA. Describes the point symmetry of the lattice.
-/// Differs from [`LatticeSystem`] in the classification of hexagonal-family groups: crystal systems
+/// Differs from [`CrystalFamily`] in the classification of hexagonal-family groups: crystal systems
 /// are based on the number (3 = trigonal, 6 = hexagonal), here it's based on the symmetry of the
 /// lattice.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(Arbitrary))]
 pub enum LatticeSystem {
     Triclinic,
     Monoclinic,
@@ -30,12 +63,16 @@ pub enum LatticeSystem {
 }
 
 impl LatticeSystem {
-    /// Gets the crystal family. This converts `Trigonal` to `Hexagonal` and leaves everything
+    /// Gets the crystal family. This converts `Rhombohedral` to `Hexagonal` and leaves everything
     /// else unchanged.
-    pub fn family(&self) -> Self {
+    pub fn family(&self) -> CrystalFamily {
         match *self {
-            Self::Rhombohedral => Self::Hexagonal,
-            other => other,
+            Self::Triclinic => CrystalFamily::Triclinic,
+            Self::Monoclinic => CrystalFamily::Monoclinic,
+            Self::Orthorhombic => CrystalFamily::Orthorhombic,
+            Self::Tetragonal => CrystalFamily::Tetragonal,
+            Self::Hexagonal | Self::Rhombohedral => CrystalFamily::Hexagonal,
+            Self::Cubic => CrystalFamily::Cubic,
         }
     }
 }
@@ -44,6 +81,7 @@ impl LatticeSystem {
 /// lattice system. `SettingDependent`, denoted `S`, indicates A, B, C, or I depending on the group:
 /// these are equivalent up to labeling the axes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(Arbitrary))]
 pub enum CenteringType {
     Primitive,
     BodyCentered,
@@ -68,7 +106,8 @@ impl CenteringType {
 #[allow(non_camel_case_types)]
 /// The Bravais lattice classes.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BravaisLattice {
+#[cfg_attr(test, derive(Arbitrary))]
+pub enum BravaisLatticeType {
     aP,
     mP,
     mS,
@@ -85,7 +124,7 @@ pub enum BravaisLattice {
     cF,
 }
 
-impl BravaisLattice {
+impl BravaisLatticeType {
     /// Gets the centering type, which descries the translations that leave the lattice unchanged.
     pub fn centering(&self) -> CenteringType {
         match *self {
@@ -102,7 +141,7 @@ impl BravaisLattice {
     /// Gets the lattice system, which describes the point group that leaves the lattice unchanged.
     /// This means rhombohedral and hexagonal lattices are treated differently: one has a sixfold
     /// rotation, the other does not.
-    pub fn system(&self) -> LatticeSystem {
+    pub fn lattice_system(&self) -> LatticeSystem {
         match &self {
             Self::aP => LatticeSystem::Triclinic,
             Self::mP | Self::mS => LatticeSystem::Monoclinic,
@@ -114,13 +153,55 @@ impl BravaisLattice {
         }
     }
 
+    /// Constructs from family and centering type, if such a type exists, otherwise `None`.
+    pub fn from_family_and_centering(sys: CrystalFamily, center: CenteringType) -> Option<Self> {
+        match (sys, center) {
+            (CrystalFamily::Triclinic, CenteringType::Primitive) => Some(Self::aP),
+            (CrystalFamily::Triclinic, CenteringType::BodyCentered) => None,
+            (CrystalFamily::Triclinic, CenteringType::SettingDependent) => None,
+            (CrystalFamily::Triclinic, CenteringType::FaceCentered) => None,
+            (CrystalFamily::Triclinic, CenteringType::Rhombohedral) => None,
+            (CrystalFamily::Monoclinic, CenteringType::Primitive) => Some(Self::mP),
+            (CrystalFamily::Monoclinic, CenteringType::BodyCentered) => None,
+            (CrystalFamily::Monoclinic, CenteringType::SettingDependent) => Some(Self::mS),
+            (CrystalFamily::Monoclinic, CenteringType::FaceCentered) => None,
+            (CrystalFamily::Monoclinic, CenteringType::Rhombohedral) => None,
+            (CrystalFamily::Orthorhombic, CenteringType::Primitive) => Some(Self::oP),
+            (CrystalFamily::Orthorhombic, CenteringType::BodyCentered) => Some(Self::oI),
+            (CrystalFamily::Orthorhombic, CenteringType::SettingDependent) => Some(Self::oS),
+            (CrystalFamily::Orthorhombic, CenteringType::FaceCentered) => Some(Self::oF),
+            (CrystalFamily::Orthorhombic, CenteringType::Rhombohedral) => None,
+            (CrystalFamily::Tetragonal, CenteringType::Primitive) => Some(Self::tP),
+            (CrystalFamily::Tetragonal, CenteringType::BodyCentered) => Some(Self::tI),
+            (CrystalFamily::Tetragonal, CenteringType::SettingDependent) => None,
+            (CrystalFamily::Tetragonal, CenteringType::FaceCentered) => None,
+            (CrystalFamily::Tetragonal, CenteringType::Rhombohedral) => None,
+            (CrystalFamily::Hexagonal, CenteringType::Primitive) => Some(Self::hP),
+            (CrystalFamily::Hexagonal, CenteringType::BodyCentered) => None,
+            (CrystalFamily::Hexagonal, CenteringType::SettingDependent) => None,
+            (CrystalFamily::Hexagonal, CenteringType::FaceCentered) => None,
+            (CrystalFamily::Hexagonal, CenteringType::Rhombohedral) => Some(Self::hR),
+            (CrystalFamily::Cubic, CenteringType::Primitive) => Some(Self::cP),
+            (CrystalFamily::Cubic, CenteringType::BodyCentered) => Some(Self::cI),
+            (CrystalFamily::Cubic, CenteringType::SettingDependent) => None,
+            (CrystalFamily::Cubic, CenteringType::FaceCentered) => Some(Self::cF),
+            (CrystalFamily::Cubic, CenteringType::Rhombohedral) => None,
+        }
+    }
+
     /// Gets the crystal family, defined as the superset of systems with the same number of free
-    /// parameters. In 3D, that means that `hR` is part of the hexagonal family and the rhombohedral
-    /// system.
-    pub fn family(&self) -> LatticeSystem {
-        self.system().family()
+    /// parameters. Essentially maps to the first letter of the lattice name.
+    pub fn family(&self) -> CrystalFamily {
+        self.lattice_system().family()
+    }
+
+    /// Gets the ITA name of the lattice type, the same as its name in Rust.
+    pub fn ita_name(&self) -> String {
+        format!("{}{}", self.family().letter(), self.centering().letter())
     }
 }
+
+/// A crystal lattice.
 
 /// A particular manifestation of a lattice in 3D coordinates. Essentially a basis in 3D space.
 #[derive(Debug, Clone, PartialEq)]
@@ -374,6 +455,28 @@ mod tests {
             prop_assume!((0f64..360f64).contains(expr));
             }
             test_single_param_roundtrip(a, b, c, alpha, beta, gamma)
+        }
+
+        #[test]
+        fn test_combo_bravais_name(
+            lat in any::<BravaisLatticeType>()
+        ) {
+            assert_eq!(format!("{:?}", lat), lat.ita_name());
+        }
+
+        #[test]
+        fn test_bravais_decomposition_roundtrip(
+            lat in any::<BravaisLatticeType>()
+        ) {
+            assert_eq!(Some(lat), BravaisLatticeType::from_family_and_centering(lat.family(), lat.centering()))
+        }
+
+        #[test]
+        fn test_family_centering_roundtrip(
+            fam in any::<CrystalFamily>(),
+            cent in any::<CenteringType>()
+        ) {
+            assert_eq!(Some(lat), BravaisLatticeType::from_family_and_centering(lat.family(), lat.centering()))
         }
     }
 }

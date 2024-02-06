@@ -1,6 +1,7 @@
 // frac!(-1) gets expanded to frac!(-1 * Frac::DENOM). I don't want to change this.
 #![allow(clippy::neg_multiply)]
-
+// while I'm coding, who cares
+#![allow(unused_imports)]
 #[macro_use]
 extern crate uom;
 
