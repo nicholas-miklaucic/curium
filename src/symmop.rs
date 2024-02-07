@@ -503,7 +503,7 @@ impl SymmOp {
     /// translations are reduced. For example, a translation by <1/2, 0, 0> will still map (3/4, 0,
     /// 0) to (5/4, 0, 0) and will be unchanged, but a translation by <11/2, 0, 0> will be mapped to
     /// <1/2, 0, 0>.
-    pub fn modulo_unit_cell(&self) -> Self {
+    pub fn modulo_unit_cell_by_elements(&self) -> Self {
         fn mod_unit(f: Frac) -> Frac {
             f.modulo_one()
         }
@@ -521,6 +521,15 @@ impl SymmOp {
             SymmOp::Reflection(plane) => SymmOp::Reflection(plane.modulo_unit_cell()),
             SymmOp::Glide(plane, tau) => SymmOp::Glide(plane.modulo_unit_cell(), tau.map(mod_unit)),
         }
+    }
+
+    /// Reduces the `SymmOp` to equivalence up to a unit cell. Note that this does *not* mean that
+    /// the `SymmOp` keeps its inputs inside their unit cell, just that the symmetry elements and
+    /// translations are reduced. For example, a translation by <1/2, 0, 0> will still map (3/4, 0,
+    /// 0) to (5/4, 0, 0) and will be unchanged, but a translation by <11/2, 0, 0> will be mapped to
+    /// <1/2, 0, 0>.
+    pub fn modulo_unit_cell(&self) -> Self {
+        Self::classify_affine(self.to_iso().modulo_unit_cell()).unwrap()
     }
 
     /// Gets the isometry corresponding to the geometric operation.

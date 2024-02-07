@@ -932,6 +932,18 @@ mod tests {
     }
 
     #[test]
+    fn test_mod_one() {
+        assert_eq!(frac!(1 / 2).modulo_one(), frac!(1 / 2));
+        assert_eq!(frac!(-1 / 2).modulo_one(), frac!(1 / 2));
+        assert_eq!(frac!(-3 / 2).modulo_one(), frac!(1 / 2));
+        assert_eq!(frac!(1).modulo_one(), frac!(0));
+        assert_eq!(frac!(0).modulo_one(), frac!(0));
+        assert_eq!(frac!(1 / 3).modulo_one(), frac!(1 / 3));
+        assert_eq!(frac!(25 / 3).modulo_one(), frac!(1 / 3));
+        assert_eq!(frac!(-35 / 3).modulo_one(), frac!(1 / 3));
+    }
+
+    #[test]
     fn test_from_str() {
         assert_eq!(
             Frac::from_str("1/2").unwrap(),

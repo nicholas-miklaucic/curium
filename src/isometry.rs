@@ -97,6 +97,11 @@ impl Isometry {
             Matrix4::from_iterator(float_m_inv.iter().map(|&fl| Frac::from_f64_unchecked(fl)));
         Self::new_affine(m_inv)
     }
+
+    /// Modulo the unit cell: keeps the translation vector within bounds.
+    pub fn modulo_unit_cell(&self) -> Self {
+        Self::new_rot_tau(self.rot(), self.tau().map(|f| f.modulo_one()))
+    }
 }
 
 impl<T: AsRef<Isometry>> Mul<T> for &Isometry {

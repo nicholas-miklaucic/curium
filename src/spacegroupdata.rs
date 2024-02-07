@@ -7,7 +7,7 @@
 use crate::{
     algebra::{generate_elements, FiniteGroup, FinitelyGeneratedGroup, Group},
     lattice::{CenteringType, LatticeSystem},
-    markup::ITA,
+    markup::{Block, RenderBlocks, ITA},
     symmop::{Direction, SymmOp},
 };
 
@@ -89,23 +89,23 @@ impl SpaceGroupSetting {
             symmops: vec![],
         };
 
-        setting.symmops = generate_elements(&setting)
-            .into_iter()
-            .map(|e| setting.residue(&e))
-            .collect();
+        setting.symmops = generate_elements(&setting);
         setting
     }
+}
 
-    /// Gets a list of the operations in ITA format.
-    pub fn ita_format_ops(&self) -> String {
-        let lines: Vec<String> = self
-            .symmops
+impl RenderBlocks for SpaceGroupSetting {
+    fn components(&self) -> Vec<crate::markup::Block> {
+        self.symmops
             .iter()
             .enumerate()
-            .map(|(i, op)| format!("({})\t{}", i + 1, ITA.render_to_string(&op.to_iso())))
-            .collect();
-
-        lines.join("\n")
+            .flat_map(|(i, op)| {
+                let mut blocks = vec![Block::new_uint((i + 1) as u64), Block::new_text(": ")];
+                blocks.append(&mut op.to_iso().modulo_unit_cell().components());
+                blocks.push(Block::new_text("\n"));
+                blocks
+            })
+            .collect()
     }
 }
 
@@ -116,7 +116,7 @@ mod tests {
     use nalgebra::Vector3;
     use pretty_assertions::assert_str_eq;
 
-    use crate::{frac, isometry::Isometry};
+    use crate::{frac, isometry::Isometry, markup::ASCII};
 
     use super::*;
 
@@ -156,6 +156,22 @@ mod tests {
                 SymmOp::classify_affine("-x, -y, -z".parse().unwrap()).unwrap(),
             ],
         );
-        assert_str_eq!(pbcm.ita_format_ops(), "");
+        // for op in pbcm.clone().symmops {
+        //     println!("{:?}", op.to_iso());
+        //     println!("{:?}", op.to_iso().modulo_unit_cell());
+        // }
+
+        assert_str_eq!(
+            ASCII.render_to_string(&pbcm),
+            "1: x, y, z
+2: -x, -y, z +1/2
+3: -x, y +1/2, -z +1/2
+4: x, -y +1/2, -z
+5: -x, -y, -z
+6: x, y, -z +1/2
+7: x, -y +1/2, z +1/2
+8: -x, y +1/2, z
+"
+        );
     }
 }
