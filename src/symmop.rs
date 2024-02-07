@@ -14,7 +14,7 @@ use num_traits::{FromPrimitive, Zero};
 use simba::scalar::SupersetOf;
 use thiserror::Error;
 
-use crate::algebra::Group;
+use crate::algebra::GroupElement;
 use crate::frac::FracError;
 use crate::{
     frac,
@@ -189,6 +189,14 @@ impl RotationAxis {
             dir: self.dir.inv(),
         }
     }
+
+    /// Moves the axis modulo a unit cell.
+    pub fn modulo_unit_cell(&self) -> Self {
+        Self {
+            origin: self.origin.map(|f| f.modulo_one()),
+            dir: self.dir,
+        }
+    }
 }
 
 /// The kind of rotation: sense and order.
@@ -305,6 +313,14 @@ impl Plane {
             d: -self.d,
         }
     }
+
+    /// Shifts the plane by unit cells so it lies as close to the origin as possible.
+    fn modulo_unit_cell(&self) -> Plane {
+        Plane {
+            n: self.n,
+            d: std::cmp::max(self.d.modulo_one(), -(self.d.modulo_one())),
+        }
+    }
 }
 
 /// A proper rotation around an axis. This should probably not be worked with directly: it's mainly
@@ -325,6 +341,14 @@ impl SimpleRotation {
     /// Flips the axis and kind, which preserves the meaning of the rotation.
     pub fn as_opposite_axis(&self) -> Self {
         Self::new(self.axis.inv(), self.kind.inv())
+    }
+
+    /// Reduces to modulo a unit cell.
+    pub fn modulo_unit_cell(&self) -> Self {
+        Self {
+            axis: self.axis.modulo_unit_cell(),
+            kind: self.kind,
+        }
     }
 }
 
@@ -471,6 +495,31 @@ impl SymmOp {
                     *self
                 }
             }
+        }
+    }
+
+    /// Reduces the `SymmOp` to equivalence up to a unit cell. Note that this does *not* mean that
+    /// the `SymmOp` keeps its inputs inside their unit cell, just that the symmetry elements and
+    /// translations are reduced. For example, a translation by <1/2, 0, 0> will still map (3/4, 0,
+    /// 0) to (5/4, 0, 0) and will be unchanged, but a translation by <11/2, 0, 0> will be mapped to
+    /// <1/2, 0, 0>.
+    pub fn modulo_unit_cell(&self) -> Self {
+        fn mod_unit(f: Frac) -> Frac {
+            f.modulo_one()
+        }
+        match *self {
+            SymmOp::Identity => SymmOp::Identity,
+            SymmOp::Inversion(tau) => SymmOp::Inversion(tau.map(mod_unit)),
+            SymmOp::Translation(tau) => SymmOp::Translation(tau.map(mod_unit)),
+            SymmOp::Rotation(rot) => SymmOp::Rotation(rot.modulo_unit_cell()),
+            SymmOp::Rotoinversion(rot) => SymmOp::Rotoinversion(rot.modulo_unit_cell()),
+            SymmOp::Screw(rot, dir, tau) => SymmOp::Screw(
+                rot.modulo_unit_cell(),
+                dir,
+                tau.rem_euclid(rot.kind.order() as ScrewOrder),
+            ),
+            SymmOp::Reflection(plane) => SymmOp::Reflection(plane.modulo_unit_cell()),
+            SymmOp::Glide(plane, tau) => SymmOp::Glide(plane.modulo_unit_cell(), tau.map(mod_unit)),
         }
     }
 
@@ -641,18 +690,14 @@ impl SymmOp {
             SymmOp::Glide(pl, tau) => (SymmOp::Reflection(*pl), *tau),
         }
     }
-}
 
-impl Group for SymmOp {
-    fn identity() -> Self {
-        SymmOp::Identity
-    }
-
-    fn inv(&self) -> SymmOp {
+    /// The inverse symmetry operation.
+    pub fn inv(&self) -> SymmOp {
         SymmOp::classify_affine(self.to_iso().inv()).unwrap()
     }
 
-    fn op(&self, rhs: &Self) -> Self {
+    /// Computes `self * rhs`: the operation of doing `rhs` and then doing `self`.
+    pub fn compose(&self, rhs: &Self) -> Self {
         SymmOp::classify_affine(self.to_iso() * rhs.to_iso()).unwrap()
     }
 }
@@ -1193,7 +1238,7 @@ mod tests {
             let tau = SymmOp::Translation(tau);
             // println!("rot {}\ntau {}", rot.to_iso().mat(), tau.to_iso().mat());
             // println!("combo {}", (tau.to_iso() * rot.to_iso()).mat());
-            let tau_rot = tau.op(&rot);
+            let tau_rot = tau.compose(&rot);
             // assert_eq!(tau_rot, op)
             let (m1, m2) = (tau_rot.to_iso().mat(), op.to_iso().mat());
             assert_eq!(m1, m2, "{m1} {m2}");

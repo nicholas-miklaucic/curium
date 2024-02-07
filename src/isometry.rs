@@ -19,7 +19,7 @@ use thiserror::Error;
 
 use crate::markup::ITA;
 use crate::{
-    algebra::Group,
+    algebra::GroupElement,
     frac,
     frac::Frac,
     markup::{Block, RenderBlocks, DISPLAY},
@@ -86,18 +86,9 @@ impl Isometry {
     pub fn tau(&self) -> Vector3<Frac> {
         self.m.fixed_view::<3, 1>(0, 3).clone_owned()
     }
-}
 
-impl<T: AsRef<Isometry>> Mul<T> for &Isometry {
-    type Output = Isometry;
-
-    fn mul(self, rhs: T) -> Self::Output {
-        Isometry::new_affine(self.mat() * rhs.as_ref().mat())
-    }
-}
-
-impl Group for Isometry {
-    fn inv(&self) -> Self {
+    /// The inverse isometry.
+    pub fn inv(&self) -> Self {
         // 1.2.2.8 of ITA
         // we could probably implement Cramer's rule, but meh
         let float_m: Matrix4<f64> = self.m.to_subset_unchecked();
@@ -106,13 +97,13 @@ impl Group for Isometry {
             Matrix4::from_iterator(float_m_inv.iter().map(|&fl| Frac::from_f64_unchecked(fl)));
         Self::new_affine(m_inv)
     }
+}
 
-    fn identity() -> Self {
-        Self::new_rot_tau(Matrix3::identity(), Vector3::zeros())
-    }
+impl<T: AsRef<Isometry>> Mul<T> for &Isometry {
+    type Output = Isometry;
 
-    fn op(&self, rhs: &Self) -> Self {
-        self * rhs
+    fn mul(self, rhs: T) -> Self::Output {
+        Isometry::new_affine(self.mat() * rhs.as_ref().mat())
     }
 }
 
@@ -147,6 +138,7 @@ impl RenderBlocks for Isometry {
                             ))
                         }
                     } else {
+                        terms.push(Block::Text(" ".into()));
                         // add sign, no need for + - stuff
                         if entry.is_negative() {
                             terms.push(crate::symbols::MINUS_SIGN.clone());

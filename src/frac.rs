@@ -74,6 +74,13 @@ impl Frac {
         Self::try_from_float(x).unwrap()
     }
 
+    /// Modulo 1: returns the fraction in [0, 1) that is an integer apart from this one.
+    pub fn modulo_one(&self) -> Self {
+        Self {
+            numerator: self.numerator.rem_euclid(Self::DENOM),
+        }
+    }
+
     pub const ONE_HALF: Frac = Frac {
         numerator: DENOM / 2,
     };

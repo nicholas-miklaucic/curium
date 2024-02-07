@@ -7,8 +7,11 @@
 //! vectors are given, even if the coordinates used to describe an object differ by setting.
 
 use crate::{
-    algebra::Group,
+    algebra::GroupElement,
+    frac,
+    group_classes::CrystalFamily,
     isometry::Isometry,
+    symmop::SymmOp,
     units::{angstrom, degree, radian, Angle, Length, Volume},
 };
 use nalgebra::{Matrix3, Matrix3x1, Matrix4, Vector3};
@@ -17,20 +20,6 @@ use thiserror::Error;
 
 #[cfg(test)]
 use proptest_derive::Arbitrary;
-
-/// A crystal family. Describes groups of lattices with the same number of free parameters and
-/// compatible point groups (in the sense of being subgroups of some supergroup.) There is only one
-/// hexagonal family that comprises rhombohedral and hexagonal lattice systems.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(test, derive(Arbitrary))]
-pub enum CrystalFamily {
-    Triclinic,
-    Monoclinic,
-    Orthorhombic,
-    Tetragonal,
-    Hexagonal,
-    Cubic,
-}
 
 impl CrystalFamily {
     /// Gets the letter describing each crystal family, as given in Table 2.1.1.1 of ITA.
@@ -86,6 +75,9 @@ pub enum CenteringType {
     Primitive,
     BodyCentered,
     SettingDependent,
+    ACentered,
+    BCentered,
+    CCentered,
     FaceCentered,
     Rhombohedral,
 }
@@ -97,9 +89,50 @@ impl CenteringType {
             CenteringType::Primitive => 'P',
             CenteringType::BodyCentered => 'I',
             CenteringType::SettingDependent => 'S',
+            CenteringType::ACentered => 'A',
+            CenteringType::BCentered => 'B',
+            CenteringType::CCentered => 'C',
             CenteringType::FaceCentered => 'F',
             CenteringType::Rhombohedral => 'R',
         }
+    }
+
+    /// Gets the generators of the translational subgroup: the set of translation vectors that
+    /// define the centering options. Includes the three basis vectors that shift by entire unit
+    /// cells. Fails for `SettingDependent`.
+    pub fn centering_ops(&self) -> Option<Vec<SymmOp>> {
+        let mut translations = vec![Vector3::x(), Vector3::y(), Vector3::z()];
+
+        let a = Vector3::new(frac!(0), frac!(1 / 2), frac!(1 / 2));
+        let b = Vector3::new(frac!(1 / 2), frac!(0), frac!(1 / 2));
+        let c = Vector3::new(frac!(1 / 2), frac!(1 / 2), frac!(0));
+
+        // Table 2.1.1.2 of ITA
+        translations.extend(match self {
+            CenteringType::Primitive => {
+                vec![]
+            }
+            CenteringType::BodyCentered => vec![Vector3::new(frac!(1 / 2), frac!(1 / 2), frac!(0))],
+            CenteringType::SettingDependent => {
+                return None;
+            }
+            CenteringType::ACentered => vec![a],
+            CenteringType::BCentered => vec![b],
+            CenteringType::CCentered => vec![c],
+            CenteringType::FaceCentered => vec![a, b, c],
+            // 'obverse' setting: this should be part of a setting setting when we have that
+            CenteringType::Rhombohedral => vec![
+                Vector3::new(frac!(2 / 3), frac!(1 / 3), frac!(1 / 3)),
+                Vector3::new(frac!(1 / 3), frac!(2 / 3), frac!(2 / 3)),
+            ],
+        });
+
+        Some(
+            translations
+                .into_iter()
+                .map(SymmOp::Translation)
+                .collect::<Vec<SymmOp>>(),
+        )
     }
 }
 
@@ -153,39 +186,38 @@ impl BravaisLatticeType {
         }
     }
 
-    /// Constructs from family and centering type, if such a type exists, otherwise `None`.
+    /// Constructs from family and centering type, if such a type exists, otherwise `None`. Consult
+    /// Table 2.1.1.1 of ITA for more information.
     pub fn from_family_and_centering(sys: CrystalFamily, center: CenteringType) -> Option<Self> {
         match (sys, center) {
             (CrystalFamily::Triclinic, CenteringType::Primitive) => Some(Self::aP),
-            (CrystalFamily::Triclinic, CenteringType::BodyCentered) => None,
-            (CrystalFamily::Triclinic, CenteringType::SettingDependent) => None,
-            (CrystalFamily::Triclinic, CenteringType::FaceCentered) => None,
-            (CrystalFamily::Triclinic, CenteringType::Rhombohedral) => None,
             (CrystalFamily::Monoclinic, CenteringType::Primitive) => Some(Self::mP),
-            (CrystalFamily::Monoclinic, CenteringType::BodyCentered) => None,
-            (CrystalFamily::Monoclinic, CenteringType::SettingDependent) => Some(Self::mS),
-            (CrystalFamily::Monoclinic, CenteringType::FaceCentered) => None,
-            (CrystalFamily::Monoclinic, CenteringType::Rhombohedral) => None,
+            (
+                CrystalFamily::Monoclinic,
+                CenteringType::SettingDependent
+                | CenteringType::ACentered
+                | CenteringType::BCentered
+                | CenteringType::BodyCentered
+                | CenteringType::CCentered,
+            ) => Some(Self::mS),
             (CrystalFamily::Orthorhombic, CenteringType::Primitive) => Some(Self::oP),
             (CrystalFamily::Orthorhombic, CenteringType::BodyCentered) => Some(Self::oI),
-            (CrystalFamily::Orthorhombic, CenteringType::SettingDependent) => Some(Self::oS),
+            (
+                CrystalFamily::Orthorhombic,
+                CenteringType::SettingDependent
+                | CenteringType::ACentered
+                | CenteringType::BCentered
+                | CenteringType::CCentered,
+            ) => Some(Self::oS),
             (CrystalFamily::Orthorhombic, CenteringType::FaceCentered) => Some(Self::oF),
-            (CrystalFamily::Orthorhombic, CenteringType::Rhombohedral) => None,
             (CrystalFamily::Tetragonal, CenteringType::Primitive) => Some(Self::tP),
             (CrystalFamily::Tetragonal, CenteringType::BodyCentered) => Some(Self::tI),
-            (CrystalFamily::Tetragonal, CenteringType::SettingDependent) => None,
-            (CrystalFamily::Tetragonal, CenteringType::FaceCentered) => None,
-            (CrystalFamily::Tetragonal, CenteringType::Rhombohedral) => None,
             (CrystalFamily::Hexagonal, CenteringType::Primitive) => Some(Self::hP),
-            (CrystalFamily::Hexagonal, CenteringType::BodyCentered) => None,
-            (CrystalFamily::Hexagonal, CenteringType::SettingDependent) => None,
-            (CrystalFamily::Hexagonal, CenteringType::FaceCentered) => None,
             (CrystalFamily::Hexagonal, CenteringType::Rhombohedral) => Some(Self::hR),
             (CrystalFamily::Cubic, CenteringType::Primitive) => Some(Self::cP),
             (CrystalFamily::Cubic, CenteringType::BodyCentered) => Some(Self::cI),
-            (CrystalFamily::Cubic, CenteringType::SettingDependent) => None,
             (CrystalFamily::Cubic, CenteringType::FaceCentered) => Some(Self::cF),
-            (CrystalFamily::Cubic, CenteringType::Rhombohedral) => None,
+            _ => None,
         }
     }
 
@@ -476,7 +508,15 @@ mod tests {
             fam in any::<CrystalFamily>(),
             cent in any::<CenteringType>()
         ) {
-            assert_eq!(Some(lat), BravaisLatticeType::from_family_and_centering(lat.family(), lat.centering()))
+            let new_cent = match (fam, cent) {
+                (CrystalFamily::Monoclinic, CenteringType::SettingDependent | CenteringType::CCentered | CenteringType::BCentered | CenteringType::ACentered | CenteringType::BodyCentered) => CenteringType::SettingDependent,
+                (CrystalFamily::Orthorhombic, CenteringType::SettingDependent | CenteringType::CCentered | CenteringType::BCentered | CenteringType::ACentered) => CenteringType::SettingDependent,
+                (_fam, c) => c
+            };
+
+            let lat = BravaisLatticeType::from_family_and_centering(fam, new_cent).unwrap();
+            assert_eq!(lat.family(), fam);
+            assert_eq!(lat.centering(), new_cent);
         }
     }
 }

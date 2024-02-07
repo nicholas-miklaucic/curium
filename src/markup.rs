@@ -266,7 +266,7 @@ impl RenderDoc for SimpleRenderDoc {
                 Sign::Negative => '\u{0305}',
             };
             let abs = self.config.render_to_string(block);
-            self.write_raw(abs.chars().flat_map(|c| [c, join_char]).collect::<String>())
+            self.write_raw(abs.chars().flat_map(|c| [join_char, c]).collect::<String>())
         } else if let Sign::Positive = sign {
             self.render_block(block)
         } else {
