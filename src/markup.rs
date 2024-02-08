@@ -384,7 +384,7 @@ pub const ITA: SimpleRenderConfig = SimpleRenderConfig {
     ita_minus: true,
 };
 
-pub const DISPLAY: SimpleRenderConfig = UNICODE;
+pub const DISPLAY: SimpleRenderConfig = ITA;
 
 #[cfg(test)]
 mod tests {

@@ -843,7 +843,7 @@ macro_rules! frac {
         }
     }};
     ($num:expr) => {
-        $crate::frac::Frac::new_with_numerator(($num) * $crate::frac::Frac::DENOM)
+        $crate::frac::Frac::new_with_numerator(($num as i16) * $crate::frac::Frac::DENOM)
     };
 }
 

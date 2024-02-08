@@ -532,6 +532,55 @@ impl SymmOp {
         Self::classify_affine(self.to_iso().modulo_unit_cell()).unwrap()
     }
 
+    /// Gets the rotation associated with the operation, if one exists, otherwise `None`.
+    pub fn rotation_component(&self) -> Option<SimpleRotation> {
+        match *self {
+            Self::Rotation(rot) => Some(rot),
+            Self::Rotoinversion(rot) => Some(rot),
+            Self::Screw(rot, _dir, _tau) => Some(rot),
+            _ => None,
+        }
+    }
+
+    /// Gets the mirror plane associated with the operation, if one exists, otherwise `None`.
+    pub fn reflection_component(&self) -> Option<Plane> {
+        match *self {
+            Self::Reflection(plane) => Some(plane),
+            Self::Glide(plane, _tau) => Some(plane),
+            _ => None,
+        }
+    }
+
+    /// Gets the translation component of the operation. Note that this is *not* the same as the
+    /// translation component of the underlying affine transformation. An inversion through the
+    /// point (1/4, 0, 0) is not a linear transformation, as moves the origin to (1/2, 0, 0). But as
+    /// defined here its translation is `None`, because after the inversion no additional
+    /// translation is needed.
+    pub fn translation_component(&self) -> Option<Vector3<Frac>> {
+        match *self {
+            Self::Translation(tau) => Some(tau),
+            Self::Screw(rot, _dir, tau) => Some(
+                rot.axis
+                    .dir
+                    .scaled_vec(frac!(tau) / frac!(rot.kind.order())),
+            ),
+            Self::Glide(_plane, tau) => Some(tau),
+            _ => None,
+        }
+    }
+
+    /// Gets the symmetry direction of an operation:
+    /// - For rotations, rotoinversions, and screws, this is the direction of the rotation axis.
+    /// - For reflections and glide reflections, this is the direction of the normal vector of the
+    ///   plane.
+    /// - For the identity, inversion, and translations, there is no symmetry direction and `None`
+    ///   is returned.
+    pub fn symmetry_direction(&self) -> Option<Direction> {
+        self.rotation_component()
+            .map(|rot| rot.axis.dir)
+            .or_else(|| self.reflection_component().map(|pl| pl.n))
+    }
+
     /// Gets the isometry corresponding to the geometric operation.
     pub fn to_iso(&self) -> Isometry {
         let hex = matrix![

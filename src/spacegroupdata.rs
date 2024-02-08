@@ -116,7 +116,11 @@ mod tests {
     use nalgebra::Vector3;
     use pretty_assertions::assert_str_eq;
 
-    use crate::{frac, isometry::Isometry, markup::ASCII};
+    use crate::{
+        frac,
+        isometry::Isometry,
+        markup::{ASCII, DISPLAY, UNICODE},
+    };
 
     use super::*;
 
@@ -173,5 +177,35 @@ mod tests {
 8: -x, y +1/2, z
 "
         );
+    }
+
+    #[test]
+    fn test_pbcm_57_dirs() {
+        let pbcm = SpaceGroupSetting::from_lattice_and_ops(
+            LatticeSystem::Orthorhombic,
+            CenteringType::Primitive,
+            vec![
+                SymmOp::classify_affine("-x, -y, z+1/2".parse().unwrap()).unwrap(),
+                SymmOp::classify_affine("-x, y+1/2, -z+1/2".parse().unwrap()).unwrap(),
+                SymmOp::classify_affine("-x, -y, -z".parse().unwrap()).unwrap(),
+            ],
+        );
+
+        for op in pbcm.symmops {
+            println!(
+                "{}\n{}\n{}\n{:?}",
+                DISPLAY.render_to_string(&op.to_iso()),
+                op.rotation_component().map_or_else(
+                    || op
+                        .translation_component()
+                        .map(|t| format!("{:?}", t))
+                        .unwrap_or("None".into()),
+                    |t| format!("{:?} {:?}", t.axis.dir, t.kind)
+                ),
+                op.translation_component().unwrap_or(Vector3::zeros()),
+                op.symmetry_direction().map(|d| d.v)
+            );
+            println!("\n---------------------------------------------\n");
+        }
     }
 }
