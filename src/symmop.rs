@@ -143,6 +143,76 @@ impl Direction {
         ];
         Direction::new(m * self.v.map(|i| Frac::from(i)))
     }
+
+    /// If needed, orients to conform to ITA conventions. Use only when forward and backward are
+    /// equivalent.
+    pub fn conventional_orientation(&self) -> Self {
+        if self.is_conventionally_oriented() {
+            self.clone()
+        } else {
+            self.inv()
+        }
+    }
+
+    /// Gets the standard basis vectors for the plane normal to this direction. This is defined as
+    /// the smallest integral vectors b1, b2 such that b1 x b2 is parallel to the normal vector.
+    pub fn plane_basis(&self) -> (Direction, Direction) {
+        let mut num_zeros = 0;
+        let mut num_nonzeros = 0;
+        let mut b1 = vec![frac!(0), frac!(0), frac!(0)];
+        let mut b2 = vec![frac!(0), frac!(0), frac!(0)];
+        let mut b3 = vec![frac!(0), frac!(0), frac!(0)];
+        for i in 0..3 {
+            let el = self.as_vec3()[i];
+            if el.is_zero() {
+                if num_zeros == 0 {
+                    b1[i] = frac!(1);
+                } else {
+                    b2[i] = frac!(1);
+                }
+                num_zeros += 1;
+            } else {
+                b3[i] = match num_nonzeros {
+                    0 => frac!(1) / el,
+                    1 => frac!(-1) / el,
+                    _ => frac!(0),
+                };
+                num_nonzeros += 1;
+            }
+        }
+
+        let (e1, e2) = match num_zeros {
+            0 => {
+                // challenging case e.g., [a b c] nonzero
+                // b3 is [1/a -1/b 0], which is normal
+                // cross product is [c/b c/a -a/b - b/a]
+                // scaling by ab, we get [ac bc -(a^2 + b^2)]
+                // which is integral
+                let [a, b, c] = *self.v.as_slice() else {
+                    panic!("v is 3D");
+                };
+                (
+                    Direction::new(Vector3::from_row_slice(&b3)),
+                    Direction::new(Vector3::new(
+                        frac!(a * c),
+                        frac!(b * c),
+                        Frac::from(-(a * a + b * b)),
+                    )),
+                )
+            }
+            1 => (
+                Direction::new(Vector3::from_row_slice(&b1)),
+                Direction::new(Vector3::from_row_slice(&b3)),
+            ),
+            2 => (
+                Direction::new(Vector3::from_row_slice(&b1)),
+                Direction::new(Vector3::from_row_slice(&b2)),
+            ),
+            _ => panic!("Zero direction is not allowed"),
+        };
+
+        (e1.conventional_orientation(), e2.conventional_orientation())
+    }
 }
 
 impl Display for Direction {
@@ -320,6 +390,11 @@ impl Plane {
             n: self.n,
             d: std::cmp::max(self.d.modulo_one(), -(self.d.modulo_one())),
         }
+    }
+
+    /// Gets the basis directions of the plane. The two should be orthogonal.
+    pub fn basis(&self) -> (Direction, Direction) {
+        self.n.plane_basis()
     }
 }
 

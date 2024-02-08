@@ -11,7 +11,8 @@ use crate::{
     frac,
     group_classes::CrystalFamily,
     isometry::Isometry,
-    symmop::SymmOp,
+    markup::{Block, RenderBlocks},
+    symmop::{Direction, SymmOp},
     units::{angstrom, degree, radian, Angle, Length, Volume},
 };
 use nalgebra::{Matrix3, Matrix3x1, Matrix4, Vector3};
@@ -62,6 +63,35 @@ impl LatticeSystem {
             Self::Tetragonal => CrystalFamily::Tetragonal,
             Self::Hexagonal | Self::Rhombohedral => CrystalFamily::Hexagonal,
             Self::Cubic => CrystalFamily::Cubic,
+        }
+    }
+
+    /// Gets the conventional symmetry directions for Hermann-Mauguin symbols, as given in Table
+    /// 1.4.1.1 of ITA. `None` means 1 or -1 in the symbol: no nontrivial symmetries.
+    pub fn symm_dirs(&self) -> Vec<Option<Direction>> {
+        // TODO adjust for settings
+        match *self {
+            LatticeSystem::Triclinic => vec![None],
+            LatticeSystem::Monoclinic => vec![None, Some(Direction::new(Vector3::y())), None],
+            LatticeSystem::Orthorhombic => vec![
+                Some(Direction::new(Vector3::x())),
+                Some(Direction::new(Vector3::y())),
+                Some(Direction::new(Vector3::z())),
+            ],
+            LatticeSystem::Tetragonal | LatticeSystem::Hexagonal => vec![
+                Some(Direction::new(Vector3::z())),
+                Some(Direction::new(Vector3::x())),
+                Some(Direction::new(Vector3::new(frac!(1), frac!(-1), frac!(0)))),
+            ],
+            LatticeSystem::Rhombohedral => vec![
+                Some(Direction::new(Vector3::z())),
+                Some(Direction::new(Vector3::x())),
+            ],
+            LatticeSystem::Cubic => vec![
+                Some(Direction::new(Vector3::z())),
+                Some(Direction::new(Vector3::new(frac!(1), frac!(1), frac!(1)))),
+                Some(Direction::new(Vector3::new(frac!(1), frac!(-1), frac!(0)))),
+            ],
         }
     }
 }
@@ -133,6 +163,12 @@ impl CenteringType {
                 .map(SymmOp::Translation)
                 .collect::<Vec<SymmOp>>(),
         )
+    }
+}
+
+impl RenderBlocks for CenteringType {
+    fn components(&self) -> Vec<crate::markup::Block> {
+        vec![Block::new_text(self.letter().to_string().as_str())]
     }
 }
 

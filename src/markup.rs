@@ -29,8 +29,10 @@ pub enum Block {
     Fraction(Box<Block>, Box<Block>),
     /// A point in 3D space.
     Point3D(Box<Block>, Box<Block>, Box<Block>),
-    /// A vector in the mathematical sense.
+    /// A mathematical vector.
     Vector(Vec<Block>),
+    /// A collection of blocks.
+    Blocks(Vec<Block>),
 }
 
 /// The sign of a number. This is typographic, not numeric: -0 is not the same as +0.
@@ -169,7 +171,8 @@ pub trait RenderDoc {
             Block::Signed(block, sign) => self.render_signed(block, sign),
             Block::Fraction(num, denom) => self.render_fraction(num, denom),
             Block::Point3D(x, y, z) => self.render_point3d(x, y, z),
-            Block::Vector(blocks) => self.render_blocks(blocks),
+            Block::Blocks(blocks) => self.render_blocks(blocks),
+            Block::Vector(blocks) => self.render_vector(blocks),
         }
     }
 

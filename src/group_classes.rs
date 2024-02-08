@@ -1,7 +1,10 @@
 //! Types needed to classify the space groups into different taxa.
 
+use nalgebra::Vector3;
 #[cfg(test)]
 use proptest_derive::Arbitrary;
+
+use crate::symmop::Direction;
 
 /// A crystal system, as defined in 2.1.1.1 (iii) of ITA. Combined with a centering type, which
 /// defines the translation components, the result is a unique Bravais lattice.
