@@ -4,6 +4,8 @@
 //! generic [`SpaceGroup`], a simple 230-element enum, is all that is needed to describe a space
 //! group for serialization.
 
+use std::str::FromStr;
+
 use nalgebra::{Point3, Vector3};
 
 use crate::{
@@ -119,11 +121,10 @@ impl RenderBlocks for PartialSymmOp {
                 vec![Block::new_int(r as i64)]
             }
             PartialSymmOp::GenRotation(r, s) => {
-                vec![
-                    Block::new_int(r as i64),
-                    Block::new_text("_"),
-                    Block::new_uint((s % r).abs() as u64),
-                ]
+                vec![Block::Subscript(
+                    Block::new_int(r as i64).into(),
+                    Block::new_uint(s.rem_euclid(r) as u64).into(),
+                )]
             }
         }
     }
@@ -260,15 +261,17 @@ impl PartialOrd for PartialSymmOp {
 /// A full Hermann-Mauguin symbol component, describing the rotation and reflection in a direction.
 /// Examples are `2/m`, `2_1 / n`, `c`, and `2`.
 #[derive(Debug, Default, Clone, Hash, PartialEq, Eq)]
-pub struct FullHMSymbol {
+pub struct FullHMSymbolUnit {
     /// Rotation component.
     rotation: Option<PartialSymmOp>,
     /// Reflection component.
     reflection: Option<PartialSymmOp>,
-    pub ops: Vec<PartialSymmOp>,
+    // TODO remove this
+    /// Keeps track of ops, for debugging.
+    ops: Vec<PartialSymmOp>,
 }
 
-impl FullHMSymbol {
+impl FullHMSymbolUnit {
     /// Updates the symbol to summarize the previous symbol and the new operation.
     /// - If the new operation is a rotation/reflection and the current symbol has no previous
     ///   operation of that type, the new operation enters that spot.
@@ -291,7 +294,7 @@ impl FullHMSymbol {
     }
 }
 
-impl RenderBlocks for FullHMSymbol {
+impl RenderBlocks for FullHMSymbolUnit {
     fn components(&self) -> Vec<Block> {
         match (&self.rotation, &self.reflection) {
             (Some(r1), Some(r2)) => {
@@ -343,11 +346,11 @@ impl SpaceGroupSetting {
             .collect()
     }
 
-    pub fn full_hm_symbol(&self) -> (CenteringType, Vec<FullHMSymbol>) {
+    pub fn full_hm_symbol(&self) -> (CenteringType, Vec<FullHMSymbolUnit>) {
         let dirs = self.lattice_type.symm_dirs();
         let mut syms = vec![];
         for _dir in &dirs {
-            syms.push(FullHMSymbol::default());
+            syms.push(FullHMSymbolUnit::default());
         }
 
         for op in self.symmops.clone() {
@@ -407,6 +410,7 @@ mod tests {
 
         // dbg!(pbcm.full_hm_symbol().1);
         assert_eq!(ASCII.render_to_string(&pbcm).as_str(), "P 2/b 2_1/c 2_1/m");
+        assert_eq!(UNICODE.render_to_string(&pbcm).as_str(), "P 2⁄b 2₁⁄c 2₁⁄m");
     }
 
     #[test]

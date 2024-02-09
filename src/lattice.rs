@@ -6,6 +6,10 @@
 //! volume is fundamentally the same symmetry and same object regardless of which order the basis
 //! vectors are given, even if the coordinates used to describe an object differ by setting.
 
+use std::{
+    char::ParseCharError, error::Error, num::ParseFloatError, str::FromStr, string::ParseError,
+};
+
 use crate::{
     algebra::GroupElement,
     frac,

@@ -31,6 +31,10 @@ pub enum Block {
     Point3D(Box<Block>, Box<Block>, Box<Block>),
     /// A mathematical vector.
     Vector(Vec<Block>),
+    /// Text with a subscript.
+    Subscript(Box<Block>, Box<Block>),
+    /// Text with a superscript.
+    Superscript(Box<Block>, Box<Block>),
     /// A collection of blocks.
     Blocks(Vec<Block>),
 }
@@ -173,7 +177,17 @@ pub trait RenderDoc {
             Block::Point3D(x, y, z) => self.render_point3d(x, y, z),
             Block::Blocks(blocks) => self.render_blocks(blocks),
             Block::Vector(blocks) => self.render_vector(blocks),
+            Block::Subscript(base, sub) => self.render_subscript(base, sub),
+            Block::Superscript(base, super_) => self.render_superscript(base, super_),
         }
+    }
+
+    fn render_subscript(&mut self, base: &Block, sub: &Block) -> &mut Self {
+        self.render_blocks(&[base.clone(), Block::new_text("_"), sub.clone()])
+    }
+
+    fn render_superscript(&mut self, base: &Block, super_: &Block) -> &mut Self {
+        self.render_blocks(&[base.clone(), Block::new_text("^"), super_.clone()])
     }
 
     /// Renders an iterator of blocks, one after another.
@@ -281,6 +295,72 @@ impl RenderDoc for SimpleRenderDoc {
         self.render_block(num)
             .render_block(&FRAC_SLASH)
             .render_block(denom)
+    }
+
+    fn render_block(&mut self, block: &Block) -> &mut Self {
+        match block {
+            Block::Text(text) => self.render_text(text),
+            Block::Symbol(sym) => self.render_symbol(sym),
+            Block::Uint(u) => self.render_uint(*u),
+            Block::Ufloat(f) => self.render_ufloat(*f),
+            Block::Signed(block, sign) => self.render_signed(block, sign),
+            Block::Fraction(num, denom) => self.render_fraction(num, denom),
+            Block::Point3D(x, y, z) => self.render_point3d(x, y, z),
+            Block::Blocks(blocks) => self.render_blocks(blocks),
+            Block::Vector(blocks) => self.render_vector(blocks),
+            Block::Subscript(base, sub) => self.render_subscript(base, sub),
+            Block::Superscript(base, super_) => self.render_superscript(base, super_),
+        }
+    }
+
+    fn render_subscript(&mut self, base: &Block, sub: &Block) -> &mut Self {
+        self.render_block(base);
+        if self.config.unicode {
+            // check if all of the subscripts can be done in Unicode
+            let sub_chars: Option<Vec<Block>> = ASCII
+                .render_to_string(sub)
+                .chars()
+                .into_iter()
+                .map(sub_digit)
+                .collect();
+
+            if let Some(sub_chars) = sub_chars {
+                self.render_blocks(&sub_chars);
+                return self;
+            }
+        }
+
+        // if we got here, either fancy subscripts failed or we aren't even trying
+
+        self.render_block(&Block::new_text("_".into()));
+        self.render_block(sub);
+
+        self
+    }
+
+    fn render_superscript(&mut self, base: &Block, super_: &Block) -> &mut Self {
+        self.render_block(base);
+        if self.config.unicode {
+            // check if all of the subscripts can be done in Unicode
+            let super_chars: Option<Vec<Block>> = ASCII
+                .render_to_string(super_)
+                .chars()
+                .into_iter()
+                .map(super_digit)
+                .collect();
+
+            if let Some(sub_chars) = super_chars {
+                self.render_blocks(&sub_chars);
+                return self;
+            }
+        }
+
+        // if we got here, either fancy subscripts failed or we aren't even trying
+
+        self.render_block(&Block::new_text("^".into()));
+        self.render_block(super_);
+
+        self
     }
 }
 
