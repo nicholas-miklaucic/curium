@@ -33,7 +33,7 @@ pub fn hm_unit(input: &str) -> IResult<&str, FullHMSymbolUnit> {
 
 /// Parses a double HM operation separated by a slash.
 pub fn double_hm_op(input: &str) -> IResult<&str, FullHMSymbolUnit> {
-    let (o, (op1, op2)) = separated_pair(alt((hm_rot, hm_screw)), ws(slash), hm_reflection)(input)?;
+    let (o, (op1, op2)) = separated_pair(alt((hm_screw, hm_rot)), ws(slash), hm_reflection)(input)?;
 
     if !(!op1.is_reflection() && op2.is_reflection()) {
         fail(input)
@@ -133,7 +133,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_hm_parse() {
+    fn test_hm_parse_pbcm() {
         let (o, (ctype, units)) = hm_symbol("P b c m").unwrap();
         assert_eq!(o, "");
         assert_eq!(ctype, CenteringType::Primitive);
