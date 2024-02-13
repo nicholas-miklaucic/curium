@@ -18,6 +18,7 @@ approx = "*"
 fortuples = "0.9.1"
 either = "1.9.0"
 tabled = "0.15"
+nom = "7"
 
 [dev-dependencies]
 pretty_assertions = "1.4.0"

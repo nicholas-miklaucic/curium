@@ -7,6 +7,7 @@
 use std::str::FromStr;
 
 use nalgebra::{Point3, Vector3};
+use proptest::num;
 
 use crate::{
     algebra::{generate_elements, FiniteGroup, FinitelyGeneratedGroup, Group},
@@ -16,7 +17,7 @@ use crate::{
     lattice::{CenteringType, LatticeSystem},
     markup::{Block, RenderBlocks, ITA},
     symbols::{A_GLIDE, B_GLIDE, C_GLIDE, D_GLIDE, E_GLIDE, MIRROR, N_GLIDE},
-    symmop::{Direction, ScrewOrder, SymmOp},
+    symmop::{Direction, Plane, RotationAxis, RotationKind, ScrewOrder, SymmOp},
 };
 
 /// A space group with a specific choice of symmetry directions. Essentially corresponds to a choice
@@ -85,7 +86,7 @@ pub type RotOrder = i8;
 
 /// A description of a symmetry operation with an already-known symmetry direction: essentially, one
 /// part of a Hermann-Mauguin symbol. See Table 2.1.2.1.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum PartialSymmOp {
     /// A glide with vector a/2, denoted `a`.
     AGlide,
@@ -246,6 +247,71 @@ impl PartialSymmOp {
             }
         }
     }
+
+    /// Converts to a full `SymmOp` using the given symmetry direction.
+    pub fn to_symmop_with_dir(&self, dir: Direction) -> SymmOp {
+        if let PartialSymmOp::GenRotation(r, s) = *self {
+            match (r, s) {
+                (1, 0) => SymmOp::Identity,
+                (-1, 0) => SymmOp::Inversion(Point3::origin()),
+                (r, s) => {
+                    let axis = RotationAxis::new(dir.as_vec3(), Point3::origin());
+                    let tau = axis.dir.scaled_vec(frac!(s.abs()) / frac!(r.abs()));
+                    // dbg!(tau);
+                    let kind = RotationKind::new(true, r.abs() as usize);
+                    SymmOp::new_generalized_rotation(axis, kind, r.is_positive(), tau)
+                }
+            }
+        } else {
+            let f0 = frac!(0);
+            let f14 = frac!(1 / 4);
+            let f12 = frac!(1 / 2);
+
+            // if [a, b, c] == [f12, f0, f0] {
+            //     Some(Self::AGlide)
+            // } else if [a, b, c] == [f0, f12, f0] {
+            //     Some(Self::BGlide)
+            // } else if [a, b, c] == [f0, f0, f12] {
+            //     Some(Self::CGlide)
+            // } else {
+            //     // the remaining cases have many versions depending on the orientation, so
+            //     // it's most useful to work with generic basis vectors in the plane
+            //     let (b1, b2) = pl.basis();
+            //     let v1 = b1.as_vec3();
+            //     let v2 = b2.as_vec3();
+            //     let v_abc = Vector3::new(a, b, c);
+            //     if (v1 + v2).scale(f12) == v_abc {
+            //         Some(Self::NGlide)
+            //     } else if (v1 - v2).scale(f14) == v_abc {
+            //         Some(Self::DGlide)
+            //     } else if (v1 + v2).scale(f14) == v_abc {
+            //         Some(Self::DGlide)
+            //     } else if v1.scale(f12) == v_abc {
+            //         Some(Self::EGlide)
+            //     } else if v2.scale(f12) == v_abc {
+            //         Some(Self::EGlide)
+            //     } else {
+            //         None
+            //     }
+            // }
+            let (d1, d2) = dir.plane_basis();
+            let (v1, v2) = (d1.as_vec3(), d2.as_vec3());
+            let tau = match *self {
+                PartialSymmOp::AGlide => Vector3::new(f12, f0, f0),
+                PartialSymmOp::BGlide => Vector3::new(f0, f12, f0),
+                PartialSymmOp::CGlide => Vector3::new(f0, f0, f12),
+                // TODO do we need all of the potential operations here? Can a symbol be mistakenly
+                // excluded because one of its generators was redundant?
+                PartialSymmOp::EGlide => v1.scale(f12),
+                PartialSymmOp::NGlide => (v1 + v2).scale(f12),
+                PartialSymmOp::DGlide => (v1 + v2).scale(f14),
+                PartialSymmOp::GenRotation(_, _) => unreachable!(),
+            };
+
+            let plane = Plane::from_basis_and_origin(v1, v2, Point3::origin());
+            SymmOp::new_generalized_reflection(plane, tau)
+        }
+    }
 }
 
 impl PartialOrd for PartialSymmOp {
@@ -267,8 +333,8 @@ pub struct FullHMSymbolUnit {
     /// Reflection component.
     reflection: Option<PartialSymmOp>,
     // TODO remove this
-    /// Keeps track of ops, for debugging.
-    ops: Vec<PartialSymmOp>,
+    // Keeps track of ops, for debugging.
+    // ops: Vec<PartialSymmOp>,
 }
 
 impl FullHMSymbolUnit {
@@ -290,8 +356,33 @@ impl FullHMSymbolUnit {
                 |r| r.partial_max(&op).or(Some(op.clone())),
             );
         }
-        self.ops.push(op.clone());
+        // self.ops.push(op.clone());
     }
+
+    /// Gets the symmetry operations.
+    pub fn ops(&self) -> Vec<PartialSymmOp> {
+        vec![self.rotation.as_slice(), self.reflection.as_slice()].concat()
+    }
+
+    pub const A: FullHMSymbolUnit = FullHMSymbolUnit {
+        rotation: None,
+        reflection: Some(PartialSymmOp::AGlide),
+    };
+
+    pub const B: FullHMSymbolUnit = FullHMSymbolUnit {
+        rotation: None,
+        reflection: Some(PartialSymmOp::BGlide),
+    };
+
+    pub const C: FullHMSymbolUnit = FullHMSymbolUnit {
+        rotation: None,
+        reflection: Some(PartialSymmOp::CGlide),
+    };
+
+    pub const M: FullHMSymbolUnit = FullHMSymbolUnit {
+        rotation: None,
+        reflection: Some(PartialSymmOp::GenRotation(-2, 0)),
+    };
 }
 
 impl RenderBlocks for FullHMSymbolUnit {
@@ -367,6 +458,63 @@ impl SpaceGroupSetting {
 
         (self.centering, syms)
     }
+
+    /// Short Hermann-Mauguin symbol. Removes any symmetry operations that can be deduced from the
+    /// others.
+    pub fn short_hm_symbol(&self) -> (CenteringType, Vec<FullHMSymbolUnit>) {
+        let full_hm = self.full_hm_symbol();
+        let (center, all_syms) = full_hm.clone();
+        let mut short_syms = all_syms.clone();
+        let mut has_changed = true;
+        while has_changed {
+            println!("{:#?}", short_syms);
+            has_changed = false;
+            for i in 0..short_syms.len() {
+                if let (Some(refl), Some(rot)) = (short_syms[i].reflection, short_syms[i].rotation)
+                {
+                    short_syms[i].rotation = None;
+                    let new_op =
+                        Self::from_hm_symbol(self.lattice_type, self.centering, &short_syms);
+                    if new_op.full_hm_symbol() != full_hm {
+                        // dbg!(new_op.full_hm_symbol());
+                        short_syms[i].rotation = Some(rot);
+                    } else {
+                        has_changed = true;
+                        break;
+                    }
+
+                    short_syms[i].reflection = None;
+                    let new_op =
+                        Self::from_hm_symbol(self.lattice_type, self.centering, &short_syms);
+                    if new_op.full_hm_symbol() != full_hm {
+                        // dbg!(new_op.full_hm_symbol());
+                        short_syms[i].reflection = Some(refl);
+                    } else {
+                        has_changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        (center, short_syms)
+    }
+
+    /// Gets ops from lattice, centering, and full HM symbol.
+    pub fn from_hm_symbol(
+        lat_type: LatticeSystem,
+        centering: CenteringType,
+        hm_units: &[FullHMSymbolUnit],
+    ) -> Self {
+        let mut ops = vec![];
+        for (dir, unit) in lat_type.symm_dirs().into_iter().zip(hm_units.into_iter()) {
+            for partial in unit.ops() {
+                ops.push(partial.to_symmop_with_dir(dir.unwrap()));
+            }
+        }
+
+        Self::from_lattice_and_ops(lat_type, centering, ops)
+    }
 }
 
 impl RenderBlocks for SpaceGroupSetting {
@@ -386,15 +534,114 @@ mod tests {
     use std::str::FromStr;
 
     use nalgebra::Vector3;
-    use pretty_assertions::assert_str_eq;
+    use pretty_assertions::{assert_eq, assert_str_eq};
+    use proptest::proptest;
 
     use crate::{
         frac,
         isometry::Isometry,
         markup::{ASCII, DISPLAY, UNICODE},
+        parsing::{hm_symbol, hm_unit},
     };
 
     use super::*;
+
+    proptest! {
+        #[test]
+        fn test_rot_dir_decomp(
+            r in -6_i8..=6_i8,
+            s in 0_i8..=5_i8,
+        ) {
+            if r == 5 || r == -5 || r == 0 {
+                return Ok(());
+            }
+
+            let s = (s % r.abs()).abs();
+
+            // let r = if s != 0 {
+            //     r.abs()
+            // } else {
+            //     r
+            // };
+
+            if (r, s) == (2, 1) {
+                return Ok(());
+            }
+
+            let partial = PartialSymmOp::GenRotation(r, s);
+            for ax in [Direction::new(Vector3::x()), Direction::new(Vector3::y()), Direction::new(Vector3::z())] {
+                let op = partial.to_symmop_with_dir(ax);
+                // assert_eq!(op.symmetry_direction(), Some(ax));
+                assert_eq!(PartialSymmOp::try_from_op(&op), Some(partial));
+            }
+        }
+    }
+
+    #[test]
+    fn test_from_hm_pnnn() {
+        let pnnn = SpaceGroupSetting::from_lattice_and_ops(
+            LatticeSystem::Orthorhombic,
+            CenteringType::Primitive,
+            vec![
+                SymmOp::classify_affine("-x, -y, z".parse().unwrap()).unwrap(),
+                SymmOp::classify_affine("-x, y, -z".parse().unwrap()).unwrap(),
+                SymmOp::classify_affine("-x+1/2, -y+1/2, -z+1/2".parse().unwrap()).unwrap(),
+            ],
+        );
+
+        // let mut b2 = FullHMSymbolUnit::B.clone();
+        // b2.and(PartialSymmOp::GenRotation(2, 0));
+
+        let pnnn2 = SpaceGroupSetting::from_hm_symbol(
+            LatticeSystem::Orthorhombic,
+            CenteringType::Primitive,
+            &[
+                hm_unit("n").unwrap().1,
+                hm_unit("n").unwrap().1,
+                hm_unit("n").unwrap().1,
+            ],
+        );
+
+        dbg!(&pnnn.linear_generators);
+
+        println!(
+            "\n{}\n{}\n{} {}",
+            ITA.render_to_string(&pnnn.op_list()),
+            ITA.render_to_string(&pnnn2.op_list()),
+            ITA.render_to_string(&pnnn.full_hm_symbol()),
+            ITA.render_to_string(&pnnn2.full_hm_symbol()),
+        );
+
+        assert_eq!(pnnn.full_hm_symbol(), pnnn2.full_hm_symbol());
+    }
+
+    #[test]
+    fn test_from_hm_pbcm() {
+        let pbcm = SpaceGroupSetting::from_lattice_and_ops(
+            LatticeSystem::Orthorhombic,
+            CenteringType::Primitive,
+            vec![
+                SymmOp::classify_affine("-x, -y, z+1/2".parse().unwrap()).unwrap(),
+                SymmOp::classify_affine("-x, y+1/2, -z+1/2".parse().unwrap()).unwrap(),
+                SymmOp::classify_affine("-x, -y, -z".parse().unwrap()).unwrap(),
+            ],
+        );
+
+        // let mut b2 = FullHMSymbolUnit::B.clone();
+        // b2.and(PartialSymmOp::GenRotation(2, 0));
+
+        let pbcm2 = SpaceGroupSetting::from_hm_symbol(
+            LatticeSystem::Orthorhombic,
+            CenteringType::Primitive,
+            &[
+                FullHMSymbolUnit::B,
+                FullHMSymbolUnit::C,
+                FullHMSymbolUnit::M,
+            ],
+        );
+
+        assert_eq!(pbcm.full_hm_symbol(), pbcm2.full_hm_symbol());
+    }
 
     #[test]
     fn test_pbcm_57_name() {
@@ -408,7 +655,13 @@ mod tests {
             ],
         );
 
-        // dbg!(pbcm.full_hm_symbol().1);
+        println!("{}", UNICODE.render_to_string(&pbcm).as_str());
+        assert_eq!(
+            ASCII
+                .render_to_string(&pbcm.short_hm_symbol().components())
+                .as_str(),
+            "Pbcm"
+        );
         assert_eq!(ASCII.render_to_string(&pbcm).as_str(), "P 2/b 2_1/c 2_1/m");
         assert_eq!(UNICODE.render_to_string(&pbcm).as_str(), "P 2⁄b 2₁⁄c 2₁⁄m");
     }
@@ -495,6 +748,19 @@ mod tests {
                 op.symmetry_direction().map(|d| d.v)
             );
             println!("\n---------------------------------------------\n");
+        }
+    }
+
+    #[test]
+    fn test_parse_hm_47_59() {
+        for name in
+            "Pmmm Pnnn Pccn Pban Pmma Pnna Pmna Pcca Pbam Pccn Pbcm Pnnm Pmmn".split_whitespace()
+        {
+            let (o, (ctype, units)) = hm_symbol(name).unwrap();
+            assert_eq!(o, "");
+            let op = SpaceGroupSetting::from_hm_symbol(LatticeSystem::Orthorhombic, ctype, &units);
+
+            assert_eq!(ASCII.render_to_string(&op.short_hm_symbol()), name);
         }
     }
 }

@@ -375,9 +375,9 @@ impl RenderBlocks for Block {
     }
 }
 
-impl RenderBlocks for Vec<Block> {
+impl<T: RenderBlocks> RenderBlocks for Vec<T> {
     fn components(&self) -> Vec<Block> {
-        self.clone()
+        self.into_iter().flat_map(|c| c.components()).collect()
     }
 }
 

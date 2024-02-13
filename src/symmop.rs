@@ -1190,7 +1190,7 @@ mod tests {
 
     use approx::assert_ulps_eq;
 
-    use crate::markup::ASCII;
+    use crate::{markup::ASCII, spacegroupdata::PartialSymmOp};
 
     use super::*;
 
@@ -1411,6 +1411,31 @@ mod tests {
             )
         }
     }
+
+    // #[test]
+    // fn test_dir_decomposition() {
+    //     for op in many_symmops() {
+    //         if let Some(dir) = op.symmetry_direction() {
+    //             if op.translation_component().is_none() {
+    //                 if let Some(partial) = PartialSymmOp::try_from_op(&op) {
+    //                     let mut op1 = partial.to_symmop_with_dir(dir);
+    //                     if op1.to_iso().modulo_unit_cell() != op.to_iso().modulo_unit_cell() {
+    //                         op1 = op1.inv();
+    //                     }
+    //                     assert_eq!(
+    //                         op1.to_iso().modulo_unit_cell(),
+    //                         op.to_iso().modulo_unit_cell(),
+    //                         "\n{:#?}\n{:#?}\n{:?} {:?}",
+    //                         op1,
+    //                         op,
+    //                         partial,
+    //                         dir
+    //                     );
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     fn many_symmops() -> Vec<SymmOp> {
         let mut ops = vec![];

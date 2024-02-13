@@ -12,6 +12,7 @@ pub mod group_classes;
 pub mod isometry;
 pub mod lattice;
 pub mod markup;
+pub mod parsing;
 pub mod spacegroupdata;
 pub mod symbols;
 pub mod symmop;
