@@ -70,9 +70,9 @@ impl LatticeSystem {
         }
     }
 
-    /// Gets the conventional symmetry directions for Hermann-Mauguin symbols, as given in Table
-    /// 1.4.1.1 of ITA. `None` means 1 or -1 in the symbol: no nontrivial symmetries.
-    pub fn symm_dirs(&self) -> Vec<Option<Direction>> {
+    /// Gets the conventional "representative" symmetry directions for Hermann-Mauguin symbols, as
+    /// given in Table 1.4.1.1 of ITA. `None` means 1 or -1 in the symbol: no nontrivial symmetries.
+    pub fn representative_symm_dirs(&self) -> Vec<Option<Direction>> {
         // TODO adjust for settings
         match *self {
             LatticeSystem::Triclinic => vec![None],
@@ -95,6 +95,71 @@ impl LatticeSystem {
                 Some(Direction::new(Vector3::z())),
                 Some(Direction::new(Vector3::new(frac!(1), frac!(1), frac!(1)))),
                 Some(Direction::new(Vector3::new(frac!(1), frac!(-1), frac!(0)))),
+            ],
+        }
+    }
+
+    /// Gets all versions of the symmetry directions for Hermann-Mauguin symbols,    
+    /// given in Table 2.1.3.1 of ITA. `None` means 1 or -1 in the symbol: no nontrivial symmetries.
+    pub fn all_symm_dirs(&self) -> Vec<Vec<Direction>> {
+        // TODO adjust for settings
+        match *self {
+            LatticeSystem::Triclinic => vec![vec![]],
+            LatticeSystem::Monoclinic => vec![vec![], vec![Direction::new(Vector3::y())], vec![]],
+            LatticeSystem::Orthorhombic => vec![
+                vec![(Direction::new(Vector3::x()))],
+                vec![(Direction::new(Vector3::y()))],
+                vec![(Direction::new(Vector3::z()))],
+            ],
+            LatticeSystem::Tetragonal => vec![
+                vec![Direction::new(Vector3::z())],
+                vec![Direction::new(Vector3::x()), Direction::new(Vector3::y())],
+                vec![
+                    Direction::new(Vector3::new(frac!(1), frac!(-1), frac!(0))),
+                    Direction::new(Vector3::new(frac!(1), frac!(1), frac!(0))),
+                ],
+            ],
+            LatticeSystem::Hexagonal => vec![
+                vec![Direction::new(Vector3::z())],
+                vec![
+                    Direction::new(Vector3::x()),
+                    Direction::new(Vector3::y()),
+                    Direction::new(Vector3::new(frac!(-1), frac!(-1), frac!(0))),
+                ],
+                vec![
+                    Direction::new(Vector3::new(frac!(1), frac!(-1), frac!(0))),
+                    Direction::new(Vector3::new(frac!(1), frac!(2), frac!(0))),
+                    Direction::new(Vector3::new(frac!(-2), frac!(-1), frac!(0))),
+                ],
+            ],
+            LatticeSystem::Rhombohedral => vec![
+                vec![Direction::new(Vector3::z())],
+                vec![
+                    Direction::new(Vector3::x()),
+                    Direction::new(Vector3::y()),
+                    Direction::new(Vector3::new(frac!(-1), frac!(-1), frac!(0))),
+                ],
+            ],
+            LatticeSystem::Cubic => vec![
+                vec![
+                    Direction::new(Vector3::z()),
+                    Direction::new(Vector3::y()),
+                    Direction::new(Vector3::x()),
+                ],
+                vec![
+                    Direction::new(Vector3::new(frac!(1), frac!(1), frac!(1))),
+                    Direction::new(Vector3::new(frac!(1), frac!(-1), frac!(-1))),
+                    Direction::new(Vector3::new(frac!(-1), frac!(1), frac!(-1))),
+                    Direction::new(Vector3::new(frac!(-1), frac!(-1), frac!(1))),
+                ],
+                vec![
+                    Direction::new(Vector3::new(frac!(1), frac!(1), frac!(0))),
+                    Direction::new(Vector3::new(frac!(1), frac!(-1), frac!(0))),
+                    Direction::new(Vector3::new(frac!(0), frac!(1), frac!(-1))),
+                    Direction::new(Vector3::new(frac!(0), frac!(1), frac!(1))),
+                    Direction::new(Vector3::new(frac!(-1), frac!(0), frac!(1))),
+                    Direction::new(Vector3::new(frac!(1), frac!(0), frac!(1))),
+                ],
             ],
         }
     }
@@ -146,7 +211,9 @@ impl CenteringType {
             CenteringType::Primitive => {
                 vec![]
             }
-            CenteringType::BodyCentered => vec![Vector3::new(frac!(1 / 2), frac!(1 / 2), frac!(0))],
+            CenteringType::BodyCentered => {
+                vec![Vector3::new(frac!(1 / 2), frac!(1 / 2), frac!(1 / 2))]
+            }
             CenteringType::SettingDependent => {
                 return None;
             }

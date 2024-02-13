@@ -111,7 +111,7 @@ impl Direction {
                 continue;
             } else {
                 let new_scale = tau_i / full_i;
-                if scale.is_some_and(|f| f == new_scale) {
+                if scale.is_some_and(|f| f != new_scale) {
                     // this could be an error in the future, perhaps
                     // mismatching is not good!
                     return None;
@@ -494,9 +494,13 @@ impl SymmOp {
             (true, true) => Self::Rotation(rot),
             (false, true) => Self::Rotoinversion(rot),
             (proper, false) => {
-                let screw_scale = axis.dir.compute_scale(tau).expect("Bad screw translation");
+                let screw_scale = axis.dir.compute_scale(tau).expect(&format!(
+                    "Bad screw translation {} for dir {}",
+                    tau, axis.dir
+                ));
                 let screw_order = screw_scale * Frac::from(kind.order());
                 let screw_order = if screw_order.numerator % Frac::DENOM != 0 {
+                    dbg!(screw_order, axis, tau, screw_scale, kind, is_proper);
                     panic!("Screw translation not proper scale");
                 } else {
                     screw_order.numerator / Frac::DENOM
@@ -1311,6 +1315,13 @@ mod tests {
             symm.to_iso().mat(),
             ans.to_iso().mat()
         )
+    }
+
+    #[test]
+    fn test_dir_screw_110() {
+        let dir = Direction::new(vector![frac!(1), frac!(1), frac!(0)]);
+        let screw = Vector3::new(frac!(-1 / 2), frac!(-1 / 2), frac!(0));
+        assert_eq!(dir.compute_scale(screw), Some(frac!(-1 / 2)));
     }
 
     #[test]
