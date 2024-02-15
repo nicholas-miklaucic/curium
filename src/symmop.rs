@@ -15,10 +15,10 @@ use simba::scalar::SupersetOf;
 use thiserror::Error;
 
 use crate::algebra::GroupElement;
-use crate::frac::FracError;
+use crate::fract::FracError;
 use crate::{
     frac,
-    frac::{BaseInt, Frac, DENOM},
+    fract::{BaseInt, Frac, DENOM},
     isometry::Isometry,
 };
 

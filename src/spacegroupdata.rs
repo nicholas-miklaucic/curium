@@ -12,8 +12,9 @@ use num_traits::Zero;
 use crate::{
     algebra::{generate_elements, FiniteGroup, FinitelyGeneratedGroup, Group},
     frac,
-    frac::Frac,
+    fract::Frac,
     group_classes::CrystalSystem,
+    hall::HallCenteringType,
     lattice::{CenteringType, LatticeSystem},
     markup::{Block, RenderBlocks, ITA},
     symbols::{A_GLIDE, B_GLIDE, C_GLIDE, D_GLIDE, E_GLIDE, MIRROR, N_GLIDE},
@@ -47,15 +48,14 @@ pub const SPACE_GROUP_SYMBOLS: [&'static str; 230] = [
     "Im-3m", "Ia-3d",
 ];
 
-/// A space group with a specific choice of symmetry directions. Essentially corresponds to a choice
-/// of convention (e.g., rhombohedral or hexagonal axes) and then a full Hermann-Mauguin symbol. As
-/// such, different `SpaceGroupSetting`s can represent the same space group number.
+/// A space group with a specific choice of symmetry directions. Essentially corresponds to a full
+/// Hall symbol.
 #[derive(Debug, Clone)]
 pub struct SpaceGroupSetting {
     /// The coordinate system.
-    lattice_type: LatticeSystem,
+    pub lattice_type: LatticeSystem,
     /// The centering type of the lattice, defining the translational symmetry of the spacegroup.
-    centering: CenteringType,
+    centering: HallCenteringType,
     /// The generator operations, not including pure translations.
     linear_generators: Vec<SymmOp>,
     /// The symmetry operations that define the group beyond translational symmetry. Should form a
@@ -94,7 +94,7 @@ impl FinitelyGeneratedGroup<SymmOp> for SpaceGroupSetting {
     type Generators = Vec<SymmOp>;
 
     fn generators(&self) -> Self::Generators {
-        let mut gens = self.centering.centering_ops().unwrap();
+        let mut gens = self.centering.centering_ops();
         gens.extend(self.linear_generators.clone());
         gens
     }
@@ -452,13 +452,9 @@ impl SpaceGroupSetting {
     /// included.
     pub fn from_lattice_and_ops(
         lat_type: LatticeSystem,
-        centering: CenteringType,
+        centering: HallCenteringType,
         ops: Vec<SymmOp>,
     ) -> Self {
-        if centering == CenteringType::SettingDependent {
-            panic!("Can't do this yet");
-        }
-
         let mut setting = Self {
             lattice_type: lat_type,
             centering,
@@ -483,7 +479,7 @@ impl SpaceGroupSetting {
             .collect()
     }
 
-    pub fn full_hm_symbol(&self) -> (CenteringType, Vec<FullHMSymbolUnit>) {
+    pub fn full_hm_symbol(&self) -> (HallCenteringType, Vec<FullHMSymbolUnit>) {
         let dirs = self.lattice_type.all_symm_dirs();
         let mut syms = vec![];
         for _dir in &dirs {
@@ -519,7 +515,7 @@ impl SpaceGroupSetting {
     /// Short Hermann-Mauguin symbol. Removes the rotation component of most double symbols, except
     /// for the primary direction of monoclinic, tetragonal, and hexagonal groups. So P 6_3/m 2/m
     /// 2/c becomes P 6_3/m m c, and P 2/m 2/n 2_1/a becomes Pmna.
-    pub fn short_hm_symbol(&self) -> (CenteringType, Vec<FullHMSymbolUnit>) {
+    pub fn short_hm_symbol(&self) -> (HallCenteringType, Vec<FullHMSymbolUnit>) {
         let full_hm = self.full_hm_symbol();
         let (center, all_syms) = full_hm.clone();
         let mut short_syms = all_syms.clone();
@@ -556,126 +552,6 @@ impl SpaceGroupSetting {
 
         (center, short_syms)
     }
-
-    /// Initializes from lattice, centering, and HM symbol.
-    fn from_short_hm_symbol_and_lattice(
-        lat_type: LatticeSystem,
-        centering: CenteringType,
-        hm_units: &[FullHMSymbolUnit],
-    ) -> Self {
-        let mut ops = vec![];
-        let mut symm_dirs = lat_type.representative_symm_dirs();
-        if lat_type == LatticeSystem::Monoclinic {
-            // use b-setting short symbol, so Pc means P1c1
-            symm_dirs.retain(|o| o.is_some());
-        }
-        for (dir, unit) in symm_dirs.into_iter().zip(hm_units.into_iter()) {
-            for partial in unit.ops() {
-                ops.push(partial.to_symmop_with_dir(dir.unwrap_or(Direction::new(Vector3::x()))));
-            }
-        }
-
-        // annoying edge cases
-        if lat_type == LatticeSystem::Orthorhombic
-            && ops.len() == 3
-            && ops.iter().all(|op| op.reflection_component().is_none())
-        {
-            // P 2 2 2 and P 2 2 2_1 and friends are special. For axes R1 and R2, they intersect
-            // only if R3 = 2 and not 2_1. See 3.3.3.1 (iii) of ITA, page 780.
-            // dbg!("Dealing with edge case");
-            let r3 = ops.pop().unwrap();
-            let m_over_n = match r3 {
-                SymmOp::Rotation(_rot) => frac!(0),
-                SymmOp::Screw(rot, _dir, tau) => {
-                    frac!(tau % rot.kind.order() as ScrewOrder) / frac!(rot.kind.order())
-                }
-                _ => {
-                    dbg!(hm_units);
-                    dbg!(r3);
-                    panic!("Oops");
-                }
-            };
-
-            ops[1] = ops[1].compose(&SymmOp::Translation(Vector3::new(
-                frac!(0),
-                frac!(0),
-                -m_over_n,
-            )));
-        } else if ops.len() == 3 {
-            // dbg!("Dealing with indicators");
-            // 3.3.1.4.3
-            /// An op is an indicator if its direction is [001] and it is 2, -4, 4, 6, or -6.
-            fn is_not_indicator(op: &SymmOp) -> bool {
-                let dir_is_c = op
-                    .symmetry_direction()
-                    .map(|dir| dir.as_vec3() == Vector3::z())
-                    .unwrap_or_default();
-                let is_even_rotation = op
-                    .rotation_component()
-                    .map(|rot| rot.kind.order() % 2 == 0)
-                    .unwrap_or_default();
-
-                !(dir_is_c && is_even_rotation)
-            }
-
-            ops.retain(is_not_indicator);
-        }
-
-        // TODO p. 46, 1.4.1.4.5
-
-        //dbg!(&ops);
-
-        Self::from_lattice_and_ops(lat_type, centering, ops)
-    }
-
-    /// Determines the lattice system from centering type and HM symbol.
-    fn find_lattice_system(
-        centering: CenteringType,
-        hm_units: &[FullHMSymbolUnit],
-    ) -> LatticeSystem {
-        if hm_units.len() >= 2 && hm_units[1].first_op().rot_kind() == 3 {
-            // cubic is the only system with a 3 in the secondary direction
-            return LatticeSystem::Cubic;
-        }
-
-        let first_ops: Vec<RotOrder> = hm_units.iter().map(|p| p.first_op().rot_kind()).collect();
-
-        match first_ops.get(0) {
-            Some(6) => LatticeSystem::Hexagonal,
-            Some(3) => match centering {
-                CenteringType::Primitive => LatticeSystem::Hexagonal,
-                CenteringType::Rhombohedral => LatticeSystem::Rhombohedral,
-                _ => panic!("P3 and R3 are only acceptable centering types"),
-            },
-            Some(4) => LatticeSystem::Tetragonal,
-            Some(2) => {
-                // if there are 3 "real" symbols, orthorhombic, else monoclinic
-                match first_ops.as_slice() {
-                    [2, 2, 2] => LatticeSystem::Orthorhombic,
-                    _ => LatticeSystem::Monoclinic,
-                }
-            }
-            Some(1) => {
-                // try to match nonstandard notation like P1a1 correctly
-                if first_ops.iter().max().unwrap() > &1 {
-                    LatticeSystem::Monoclinic
-                } else {
-                    LatticeSystem::Triclinic
-                }
-            }
-            // in the future, should this be triclinic?
-            _ => panic!("Need at least one operation"),
-        }
-    }
-
-    /// Initializes from an HM symbol.
-    pub fn from_hm_symbol(centering: CenteringType, hm_units: &[FullHMSymbolUnit]) -> Self {
-        Self::from_short_hm_symbol_and_lattice(
-            Self::find_lattice_system(centering, hm_units),
-            centering,
-            hm_units,
-        )
-    }
 }
 
 impl RenderBlocks for SpaceGroupSetting {
@@ -699,7 +575,7 @@ mod tests {
     use proptest::proptest;
 
     use crate::{
-        frac,
+        fract,
         isometry::Isometry,
         markup::{ASCII, DISPLAY, UNICODE},
         parsing::{hm_symbol, hm_unit},
@@ -739,130 +615,10 @@ mod tests {
     }
 
     #[test]
-    fn test_from_hm_pma2() {
-        let pma2 = SpaceGroupSetting::from_lattice_and_ops(
-            LatticeSystem::Orthorhombic,
-            CenteringType::Primitive,
-            vec![
-                SymmOp::classify_affine("-x, y, z".parse().unwrap()).unwrap(),
-                //SymmOp::classify_affine("-x, -y, z".parse().unwrap()).unwrap(),
-                SymmOp::classify_affine("x+1/2, -y, z".parse().unwrap()).unwrap(),
-            ],
-        );
-
-        // let mut b2 = FullHMSymbolUnit::B.clone();
-        // b2.and(PartialSymmOp::GenRotation(2, 0));
-
-        let pma2_2 = SpaceGroupSetting::from_hm_symbol(
-            CenteringType::Primitive,
-            &[
-                hm_unit("m").unwrap().1,
-                hm_unit("a").unwrap().1,
-                hm_unit("2").unwrap().1,
-            ],
-        );
-
-        dbg!(&pma2.linear_generators);
-
-        println!(
-            "\n{}\n{}\n{} {}",
-            ITA.render_to_string(&pma2.op_list()),
-            ITA.render_to_string(&pma2_2.op_list()),
-            ITA.render_to_string(&pma2.full_hm_symbol()),
-            ITA.render_to_string(&pma2_2.full_hm_symbol()),
-        );
-
-        assert_eq!(pma2.full_hm_symbol(), pma2_2.full_hm_symbol());
-    }
-
-    #[test]
-    fn test_from_hm_iba2() {
-        let grp1 = SpaceGroupSetting::from_lattice_and_ops(
-            LatticeSystem::Orthorhombic,
-            CenteringType::BodyCentered,
-            vec![
-                // SymmOp::classify_affine("-x+1/2, y+1/2, z".parse().unwrap()).unwrap(),
-                SymmOp::classify_affine("x+1/2, -y+1/2, z".parse().unwrap()).unwrap(),
-                SymmOp::classify_affine("-x, -y, z".parse().unwrap()).unwrap(),
-            ],
-        );
-
-        let grp2 = SpaceGroupSetting::from_hm_symbol(
-            CenteringType::BodyCentered,
-            &[
-                FullHMSymbolUnit::B,
-                FullHMSymbolUnit::A,
-                hm_unit("2").unwrap().1,
-            ],
-        );
-
-        dbg!(&grp1.linear_generators);
-        dbg!(&grp2.linear_generators);
-
-        println!(
-            "\n{}\n{}\n{:#?}\n{:#?}\n{} {}",
-            ITA.render_to_string(&grp1.op_list()),
-            ITA.render_to_string(&grp2.op_list()),
-            &grp1.symmops,
-            &grp2.symmops,
-            ITA.render_to_string(&grp1.full_hm_symbol()),
-            ITA.render_to_string(&grp2.full_hm_symbol()),
-        );
-
-        assert_eq!(grp1.full_hm_symbol(), grp2.full_hm_symbol());
-    }
-
-    #[test]
-    fn test_from_hm_p4nbm() {
-        let grp1 = SpaceGroupSetting::from_lattice_and_ops(
-            LatticeSystem::Tetragonal,
-            CenteringType::Primitive,
-            vec![
-                SymmOp::classify_affine("-x, -y, -z".parse().unwrap()).unwrap(),
-                SymmOp::classify_affine("-y+1/2, x, z".parse().unwrap()).unwrap(),
-                SymmOp::classify_affine("-x+1/2, y, -z".parse().unwrap()).unwrap(),
-                SymmOp::classify_affine("-x+1/2, -y+1/2, z".parse().unwrap()).unwrap(),
-            ],
-        );
-
-        let grp2 = SpaceGroupSetting::from_hm_symbol(
-            CenteringType::Primitive,
-            &[
-                hm_unit("m").unwrap().1,
-                hm_unit("n").unwrap().1,
-                hm_unit("a").unwrap().1,
-            ],
-        );
-
-        dbg!(&grp1.linear_generators);
-        dbg!(&grp2.linear_generators);
-
-        for op in &grp1.symmops {
-            println!(
-                "{:?}\t{:?}",
-                &op.symmetry_direction().map(|d| d.v),
-                PartialSymmOp::try_from_op(&op)
-            );
-        }
-
-        println!(
-            "\n{}\n{}\n{:#?}\n{:#?}\n{} {}",
-            ITA.render_to_string(&grp1.op_list()),
-            ITA.render_to_string(&grp2.op_list()),
-            &grp1.symmops[0],
-            &grp2.symmops[0],
-            ITA.render_to_string(&grp1.full_hm_symbol()),
-            ITA.render_to_string(&grp2.full_hm_symbol()),
-        );
-
-        assert_eq!(grp1.full_hm_symbol(), grp2.full_hm_symbol());
-    }
-
-    #[test]
     fn test_pbcm_57_name() {
         let pbcm = SpaceGroupSetting::from_lattice_and_ops(
             LatticeSystem::Orthorhombic,
-            CenteringType::Primitive,
+            HallCenteringType::P,
             vec![
                 SymmOp::classify_affine("-x, -y, z+1/2".parse().unwrap()).unwrap(),
                 SymmOp::classify_affine("-x, y+1/2, -z+1/2".parse().unwrap()).unwrap(),
@@ -885,7 +641,7 @@ mod tests {
     fn test_pbcm_57_residue() {
         let pbcm = SpaceGroupSetting::from_lattice_and_ops(
             LatticeSystem::Orthorhombic,
-            CenteringType::Primitive,
+            HallCenteringType::P,
             vec![
                 SymmOp::classify_affine("-x, -y, z+1/2".parse().unwrap()).unwrap(),
                 SymmOp::classify_affine("-x, y+1/2, -z+1/2".parse().unwrap()).unwrap(),
@@ -910,7 +666,7 @@ mod tests {
     fn test_pbcm_57_ops() {
         let pbcm = SpaceGroupSetting::from_lattice_and_ops(
             LatticeSystem::Orthorhombic,
-            CenteringType::Primitive,
+            HallCenteringType::P,
             vec![
                 SymmOp::classify_affine("-x, -y, z+1/2".parse().unwrap()).unwrap(),
                 SymmOp::classify_affine("-x, y+1/2, -z+1/2".parse().unwrap()).unwrap(),
@@ -940,7 +696,7 @@ mod tests {
     fn test_pbcm_57_dirs() {
         let pbcm = SpaceGroupSetting::from_lattice_and_ops(
             LatticeSystem::Orthorhombic,
-            CenteringType::Primitive,
+            HallCenteringType::P,
             vec![
                 SymmOp::classify_affine("-x, -y, z+1/2".parse().unwrap()).unwrap(),
                 SymmOp::classify_affine("-x, y+1/2, -z+1/2".parse().unwrap()).unwrap(),
@@ -963,53 +719,6 @@ mod tests {
                 op.symmetry_direction().map(|d| d.v)
             );
             println!("\n---------------------------------------------\n");
-        }
-    }
-
-    #[test]
-    fn test_hm_parse_p21m() {
-        for name in ["P21/m", "P2_1/m", "P 21/m"] {
-            let (o, (ctype, units)) = hm_symbol(name).unwrap();
-            assert_eq!(o, "");
-            assert_eq!(ctype, CenteringType::Primitive);
-            assert_eq!(
-                &units,
-                &[FullHMSymbolUnit {
-                    rotation: Some(PartialSymmOp::GenRotation(2, 1)),
-                    reflection: Some(PartialSymmOp::GenRotation(-2, 0)),
-                }]
-            );
-        }
-    }
-
-    #[test]
-    fn test_parse_all_hm() {
-        for name in SPACE_GROUP_SYMBOLS {
-            println!("{}", name);
-            // for name in ["P-42m"] {
-            let (o, (ctype, units)) = hm_symbol(name).unwrap();
-            assert_eq!(o, "");
-            let op = SpaceGroupSetting::from_hm_symbol(ctype, &units);
-
-            let redone_name = ASCII
-                .render_to_string(&op.short_hm_symbol())
-                .replace('_', "");
-
-            if redone_name != name {
-                println!(
-                    "{} ≠ {} ({})",
-                    redone_name,
-                    name,
-                    ASCII.render_to_string(&op.full_hm_symbol())
-                );
-            }
-
-            /* assert_eq!(
-                redone_name,
-                name,
-                "\n{}",
-                ITA.render_to_string(&op.op_list().components())
-            ); */
         }
     }
 }

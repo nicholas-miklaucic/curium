@@ -7,8 +7,9 @@ extern crate uom;
 
 pub mod algebra;
 pub mod element;
-pub mod frac;
+pub mod fract;
 pub mod group_classes;
+pub mod hall;
 pub mod isometry;
 pub mod lattice;
 pub mod markup;

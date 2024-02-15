@@ -21,7 +21,7 @@ use crate::markup::ITA;
 use crate::{
     algebra::GroupElement,
     frac,
-    frac::Frac,
+    fract::Frac,
     markup::{Block, RenderBlocks, DISPLAY},
 };
 
@@ -187,7 +187,7 @@ impl Isometry {
         let (h, _w) = m.shape();
         let rows = m.row_iter().map(|r| {
             r.iter()
-                .map(|f: &frac::Frac| frac_to_md(*f))
+                .map(|f: &Frac| frac_to_md(*f))
                 .collect::<Vec<String>>()
         });
         let mut table = Table::from_iter(rows);
@@ -297,7 +297,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        frac,
+        fract,
         markup::{ASCII, ITA},
     };
     use pretty_assertions::assert_eq;

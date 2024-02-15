@@ -831,19 +831,19 @@ macro_rules! frac {
 
         // n / d = x / DENOM
         // DENOM * n / d = x
-        if ($crate::frac::Frac::DENOM * n) % d == 0 {
-            $crate::frac::Frac::new_with_numerator(($crate::frac::Frac::DENOM * n) / d)
+        if ($crate::fract::Frac::DENOM * n) % d == 0 {
+            $crate::fract::Frac::new_with_numerator(($crate::fract::Frac::DENOM * n) / d)
         } else {
             panic!(
                 "Invalid fraction: {}/{} cannot be represented as n/{}",
                 n,
                 d,
-                $crate::frac::Frac::DENOM
+                $crate::fract::Frac::DENOM
             )
         }
     }};
     ($num:expr) => {
-        $crate::frac::Frac::new_with_numerator(($num as i16) * $crate::frac::Frac::DENOM)
+        $crate::fract::Frac::new_with_numerator(($num as i16) * $crate::fract::Frac::DENOM)
     };
 }
 
@@ -852,6 +852,7 @@ mod tests {
     use crate::markup::UNICODE;
 
     use super::*;
+    use crate::frac;
 
     use pretty_assertions::assert_eq;
 
