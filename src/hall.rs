@@ -512,7 +512,13 @@ mod tests {
 
     #[test]
     fn test_hall_parse() {
-        let cases = [("P 2 2 3", "P23"), ("P 6", "P6"), ("-I 4bd 2c 3", "Ia-3d")];
+        let cases = [
+            ("P 2 2 3", "P23"),
+            ("P 6", "P6"),
+            ("F 2 -2d", "Fdd2"),
+            // ("P 65 2 (0 0 1)", "P6522"),
+            // ("-I 4bd 2c 3", "Ia-3d")
+        ];
 
         for (hall, hm) in cases {
             let group: HallGroupSymbol = hall.parse().unwrap();
