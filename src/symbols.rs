@@ -9,6 +9,8 @@ macro_rules! sym {
 }
 
 sym!(SPACE, " ", " ");
+sym!(TAB, "\t", "\t");
+
 sym!(FRAC_SLASH, "/", "\u{2044}");
 sym!(MINUS_SIGN, "-", "－");
 sym!(PLUS_SIGN, "+", "＋");

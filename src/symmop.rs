@@ -10,12 +10,15 @@ use nalgebra::{
     matrix, ComplexField, Const, Matrix3, Matrix4, OMatrix, Point3, SMatrix, Translation3, Unit,
     Vector3,
 };
-use num_traits::{FromPrimitive, Zero};
+use num_traits::{FromPrimitive, Signed, Zero};
 use simba::scalar::SupersetOf;
 use thiserror::Error;
 
 use crate::algebra::GroupElement;
 use crate::fract::FracError;
+use crate::markup::{Block, RenderBlocks, ITA};
+use crate::spacegroupdata::PartialSymmOp;
+use crate::symbols::{LPAREN, SPACE, SUP_MINUS, SUP_PLUS, TAB};
 use crate::{
     frac,
     fract::{BaseInt, Frac, DENOM},
@@ -392,9 +395,15 @@ impl Plane {
         }
     }
 
-    /// Gets the basis directions of the plane. The two should be orthogonal.
-    pub fn basis(&self) -> (Direction, Direction) {
-        self.n.plane_basis()
+    /// Gets the basis vectors of the plane. The two should be orthogonal.
+    pub fn basis_vectors(&self) -> (Vector3<Frac>, Vector3<Frac>) {
+        let (b1, b2) = self.n.plane_basis();
+        (b1.as_vec3(), b2.as_vec3())
+    }
+
+    /// Gets a point on the plane.
+    pub fn origin(&self) -> Vector3<Frac> {
+        self.n.scaled_vec(self.d)
     }
 }
 
@@ -478,6 +487,174 @@ pub enum SymmOp {
     Reflection(Plane),
     /// A glide reflection.
     Glide(Plane, Vector3<Frac>),
+}
+
+impl RenderBlocks for SymmOp {
+    fn components(&self) -> Vec<Block> {
+        let partial = PartialSymmOp::try_from_op(self);
+        let mut blocks = match (*self, partial) {
+            (SymmOp::Inversion(tau), _) => {
+                let mut compound = vec![Block::new_text("t")];
+                compound.extend(tau.components());
+                compound
+            }
+            (SymmOp::Translation(tau), _) => vec![
+                Block::new_text("t"),
+                Block::Point3D(
+                    Block::Blocks(tau[0].components()).into(),
+                    Block::Blocks(tau[1].components()).into(),
+                    Block::Blocks(tau[2].components()).into(),
+                ),
+            ],
+            (SymmOp::Glide(_plane, tau), None) => vec![
+                Block::new_text("g"),
+                Block::Point3D(
+                    Block::Blocks(tau[0].components()).into(),
+                    Block::Blocks(tau[1].components()).into(),
+                    Block::Blocks(tau[2].components()).into(),
+                ),
+            ],
+
+            (_, Some(partial)) => partial.components(),
+            _ => {
+                dbg!(partial, self);
+                panic!("Oops");
+            }
+        };
+
+        // add +/- sign
+        if let Some(rot) = self.rotation_component() {
+            let kind = rot.kind;
+            if kind.order() > 2 {
+                if kind.as_frac().is_positive() {
+                    blocks.push(SUP_PLUS);
+                } else {
+                    blocks.push(SUP_MINUS);
+                }
+            }
+        }
+
+        blocks.push(SPACE);
+        blocks.push(TAB);
+        blocks.extend(self.symmetry_element().components());
+
+        // rotoinversions need an additional indication of the center
+        if let (Some(o), Some(_)) = (self.inversion_component(), self.rotation_component()) {
+            blocks.push(Block::new_text(": "));
+            blocks.extend(o.components());
+        }
+
+        blocks
+    }
+}
+
+impl RenderBlocks for Point3<Frac> {
+    fn components(&self) -> Vec<Block> {
+        vec![Block::Point3D(
+            Block::Blocks(self.x.components()).into(),
+            Block::Blocks(self.y.components()).into(),
+            Block::Blocks(self.z.components()).into(),
+        )]
+    }
+}
+
+impl std::fmt::Display for SymmOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", ITA.render_to_string(self))
+    }
+}
+
+/// A symmetry element: an affine subspace of R3. This can be either a single point, a line, a
+/// plane, or all of R3.
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum SymmetryElement {
+    /// A single point: the inversion center.
+    Point(Point3<Frac>),
+    /// A line: the rotation axis.
+    Line(RotationAxis),
+    /// A plane: the reflection plane.
+    Plane(Plane),
+    /// All of R3, for the identity.
+    Space,
+}
+
+impl SymmetryElement {
+    /// Gets an affine matrix that maps (x, y, z, 1) to the symmetry element. The axes are mapped so
+    /// that, where not restricted by dependencies, axes map directly to their image. For example,
+    /// the yz-plane is represented as 0, y, z, but the axis 111 is represented by x, x, x.
+    pub fn to_iso(&self) -> Matrix4<Frac> {
+        let f0 = frac!(0);
+        let f1 = frac!(1);
+        let mut aff = matrix![
+            f0, f0, f0, f0;
+            f0, f0, f0, f0;
+            f0, f0, f0, f0;
+            f0, f0, f0, f1;
+        ];
+        match *self {
+            SymmetryElement::Point(o) => {
+                aff[(0, 3)] = o.x;
+                aff[(1, 3)] = o.y;
+                aff[(2, 3)] = o.z;
+            }
+            SymmetryElement::Line(axis) => {
+                let dir = axis.dir.as_vec3();
+                // get letter to use for axis: first nonzero direction
+                let mut base_ax = 0;
+                while dir[base_ax].is_zero() {
+                    base_ax += 1;
+                }
+
+                aff.fixed_view_mut::<3, 1>(0, base_ax)
+                    .copy_from_slice(dir.as_slice());
+
+                let o = axis.origin;
+                aff.fixed_view_mut::<3, 1>(0, 3)
+                    .copy_from_slice(&[o.x, o.y, o.z]);
+
+                // dbg!(axis, dir);
+            }
+            SymmetryElement::Plane(plane) => {
+                let (v1, v2) = plane.basis_vectors();
+                let (a1, _f1) = v1
+                    .iter()
+                    .enumerate()
+                    .filter(|(_i, e)| !e.is_zero())
+                    .next()
+                    .unwrap();
+
+                let (a2, _f2) = v2
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, e)| i != &a1 && !e.is_zero())
+                    .next()
+                    .unwrap();
+
+                aff.fixed_view_mut::<3, 1>(0, a1)
+                    .copy_from_slice(v1.as_slice());
+                aff.fixed_view_mut::<3, 1>(0, a2)
+                    .copy_from_slice(v2.as_slice());
+                aff.fixed_view_mut::<3, 1>(0, 3)
+                    .copy_from_slice(plane.origin().as_slice())
+            }
+            SymmetryElement::Space => {
+                aff.fill_diagonal(f1);
+            }
+        }
+
+        aff
+    }
+}
+
+impl RenderBlocks for SymmetryElement {
+    fn components(&self) -> Vec<Block> {
+        if self == &Self::Space {
+            vec![]
+        } else {
+            self.to_iso().components()
+        }
+    }
 }
 
 impl SymmOp {
@@ -621,6 +798,17 @@ impl SymmOp {
         }
     }
 
+    /// Gets the center associated with the inversion component, if any.
+    pub fn inversion_component(&self) -> Option<Point3<Frac>> {
+        match *self {
+            SymmOp::Inversion(o) => Some(o),
+            SymmOp::Rotoinversion(rot) | SymmOp::Screw(rot, RotationDirectness::Improper, _) => {
+                Some(rot.axis.origin)
+            }
+            _ => None,
+        }
+    }
+
     /// Gets the mirror plane associated with the operation, if one exists, otherwise `None`.
     pub fn reflection_component(&self) -> Option<Plane> {
         match *self {
@@ -660,6 +848,23 @@ impl SymmOp {
             .or_else(|| self.reflection_component().map(|pl| pl.n))
     }
 
+    /// Gets the *symmetry element* of the operation. This is defined as the locus of points left
+    /// unchanged by the linear part of the operation.
+    /// - For pure inversions, this is the rotation center.
+    /// - For rotations of any kind, this is the rotation axis.
+    /// - For reflections and glides, this is the plane.
+    /// - For the identity and translations, this is the whole space.
+    pub fn symmetry_element(&self) -> SymmetryElement {
+        match *self {
+            SymmOp::Identity | SymmOp::Translation(_) => SymmetryElement::Space,
+            SymmOp::Inversion(o) => SymmetryElement::Point(o),
+            SymmOp::Rotation(rot) | SymmOp::Rotoinversion(rot) | SymmOp::Screw(rot, _, _) => {
+                SymmetryElement::Line(rot.axis)
+            }
+            SymmOp::Reflection(plane) | SymmOp::Glide(plane, _) => SymmetryElement::Plane(plane),
+        }
+    }
+
     /// Gets the isometry corresponding to the geometric operation.
     pub fn to_iso(&self) -> Isometry {
         let hex = matrix![
@@ -668,7 +873,7 @@ impl SymmOp {
             0., 0., 1., 0.;
             0., 0., 0., 1.;
         ];
-        let affine = match &self {
+        let (origin_shift, affine) = match &self {
             SymmOp::Identity => return Isometry::identity(),
             SymmOp::Inversion(tau) => {
                 return Isometry::new_rot_tau(
@@ -692,9 +897,10 @@ impl SymmOp {
                 let inv_mat: Matrix4<f64> = Matrix4::from_partial_diagonal(&[-1., -1., -1., 1.]);
                 let trans = Translation3::new(o.x, o.y, o.z).to_homogeneous();
                 let trans_inv = Translation3::new(-o.x, -o.y, -o.z).to_homogeneous();
-                let affine = match self {
-                    SymmOp::Rotation(_) => trans * rot * trans_inv,
-                    SymmOp::Rotoinversion(_) => trans_inv * inv_mat * rot * trans,
+                // println!("{trans} {rot} {trans_inv}");
+                let (trans, affine) = match self {
+                    SymmOp::Rotation(_) => (trans, rot),
+                    SymmOp::Rotoinversion(_) => (trans_inv, inv_mat * rot),
                     SymmOp::Screw(_, proper, order) => {
                         let mut roto_inv = rot * f64::from(proper.det_sign());
                         roto_inv[(3, 3)] = 1.;
@@ -702,18 +908,20 @@ impl SymmOp {
                             .dir
                             .scaled_vec(Frac::from(*order as BaseInt) / Frac::from(kind.order()));
                         let tau_m: Vector3<f64> = tau.to_subset_unchecked();
-                        let (trans, trans_inv) = match proper {
+                        let (trans, _trans_inv) = match proper {
                             RotationDirectness::Proper => (trans, trans_inv),
                             RotationDirectness::Improper => (trans_inv, trans),
                         };
-                        Translation3::new(tau_m.x, tau_m.y, tau_m.z).to_homogeneous()
-                            * trans
-                            * roto_inv
-                            * trans_inv
+                        (
+                            trans,
+                            Translation3::new(tau_m.x, tau_m.y, tau_m.z).to_homogeneous()
+                                * roto_inv,
+                        )
                     }
                     _ => panic!(),
                 };
-                affine
+
+                (trans, affine)
             }
             SymmOp::Reflection(plane) => {
                 let ref_m = plane.reflection_matrix();
@@ -724,13 +932,16 @@ impl SymmOp {
                 {
                     // matrix is hexagonal coordinate system
                     // use the plane instead
-                    Plane {
-                        n: plane.n.to_cart(),
-                        d: plane.d,
-                    }
-                    .reflection_matrix()
+                    (
+                        Matrix4::<f64>::identity(),
+                        Plane {
+                            n: plane.n.to_cart(),
+                            d: plane.d,
+                        }
+                        .reflection_matrix(),
+                    )
                 } else {
-                    plane.reflection_matrix()
+                    (Matrix4::<f64>::identity(), ref_m)
                 }
             }
             SymmOp::Glide(plane, tau) => {
@@ -755,12 +966,15 @@ impl SymmOp {
                     plane.reflection_matrix()
                 };
 
-                tau_m * linear
+                (Matrix4::identity(), tau_m * linear)
             }
         };
 
         let affine_frac_res: Result<Vec<Frac>, FracError> =
-            affine.iter().map(|&f| Frac::try_from_float(f)).collect();
+            (origin_shift * affine * origin_shift.try_inverse().unwrap())
+                .iter()
+                .map(|&f| Frac::try_from_float(f))
+                .collect();
 
         let affine_frac = match affine_frac_res {
             Ok(fracs) => Matrix4::from_vec(fracs),
@@ -771,16 +985,11 @@ impl SymmOp {
 
                 let hex_inv = hex.try_inverse().unwrap();
 
-                // println!(
-                //     "{hex}\n{affine}\n{}\n{}",
-                //     hex * affine * hex_inv,
-                //     hex_inv * affine * hex
-                // );
-
-                let hex_aff: Result<Vec<Frac>, _> = (hex * affine * hex_inv)
-                    .into_iter()
-                    .map(|&fl| Frac::try_from_float(fl))
-                    .collect();
+                let hex_aff: Result<Vec<Frac>, _> =
+                    (origin_shift * hex * affine * hex_inv * origin_shift.try_inverse().unwrap())
+                        .into_iter()
+                        .map(|&fl| Frac::try_from_float(fl))
+                        .collect();
 
                 match hex_aff {
                     Ok(fracs) => Matrix4::from_vec(fracs),
@@ -791,7 +1000,7 @@ impl SymmOp {
                             (hex * affine * hex_inv).map(|fl| (fl * 100.).round() / 100.),
                             hex.map(|fl| (fl * 100.).round() / 100.),
                         );
-                        dbg!(self);
+                        // dbg!(self);
                         panic!()
                     }
                 }
@@ -1218,6 +1427,56 @@ mod tests {
     }
 
     #[test]
+    fn test_dir_vec3() {
+        assert_eq!(
+            Direction::new(vector![frac!(-1), frac!(1), frac!(-1)]).as_vec3(),
+            Vector3::new(frac!(-1), frac!(1), frac!(-1))
+        );
+    }
+
+    #[test]
+    fn test_weird_rots() {
+        assert_eq!(
+            ASCII
+                .render_to_string(
+                    &SymmOp::classify_affine(Isometry::from_str("z, x, y").unwrap()).unwrap()
+                )
+                .as_str(),
+            "3+ \tx, x, x"
+        );
+
+        let op = SymmOp::classify_affine(Isometry::from_str("-z, -x+1/2, y+1/2").unwrap()).unwrap();
+
+        dbg!(op);
+
+        assert_eq!(
+            ASCII.render_to_string(&op).as_str(),
+            "3_2+ \tx -1/3, -x +1/6, -x"
+        );
+    }
+
+    #[test]
+    fn test_diagonal() {
+        // let op = SymmOp::Rotation(SimpleRotation::new(
+        //     RotationAxis::new(
+        //         vector![frac!(0), frac!(0), frac!(1)],
+        //         Point3::<Frac>::new(frac!(2 / 3), frac!(-1 / 3), frac!(1)),
+        //     ),
+        //     RotationKind::PosThree,
+        // ));
+
+        let op1 = SymmOp::classify_affine(Isometry::from_str("x-1,y,z").unwrap()).unwrap();
+        let op2 = SymmOp::classify_affine(Isometry::from_str("-y, x-y, z").unwrap()).unwrap();
+        let op3 = op1.compose(&op2);
+
+        println!("{op1:?} {op2:?}\n{op1} {op2}");
+        println!("{op3:?}");
+
+        let op4 = op3.modulo_unit_cell();
+        println!("{op4:?}");
+    }
+
+    #[test]
     fn test_id_inv() {
         assert_eq!(
             SymmOp::classify_affine(Isometry::from_str("x,y,z").unwrap()).unwrap(),
@@ -1390,18 +1649,8 @@ mod tests {
     }
 
     #[test]
-    fn test_hard_iso_display() {
-        let op = SymmOp::Rotation(SimpleRotation {
-            axis: RotationAxis {
-                origin: [frac!(-12 / 24), frac!(06 / 24), frac!(00 / 24)].into(),
-                dir: Direction {
-                    v: [[0, 0, 1]].into(),
-                },
-            },
-            kind: RotationKind::NegThree,
-        });
-
-        op.to_iso();
+    fn hard_iso_classification() {
+        SymmOp::classify_affine(Isometry::from_str("-y-1/3,-z-1/3,x+1/3").unwrap()).unwrap();
     }
 
     #[test]
@@ -1497,7 +1746,7 @@ mod tests {
                 ),
                 RotationKind::NegSix,
             )),
-            SymmOp::Rotoinversion(SimpleRotation::new(
+            SymmOp::Rotation(SimpleRotation::new(
                 RotationAxis::new(
                     vector![frac!(0), frac!(0), frac!(1)],
                     Point3::<Frac>::new(frac!(0), frac!(0), frac!(1)),

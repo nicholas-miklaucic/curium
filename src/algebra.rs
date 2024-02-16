@@ -99,26 +99,16 @@ pub fn generate_elements<E: GroupElement, G: FinitelyGeneratedGroup<E>>(group: &
     let mut closure_achieved = false;
 
     while !closure_achieved {
+        let el = elements.last().unwrap().clone();
         closure_achieved = true;
         for gen in &gens {
             // get all new elements that can be made by composing the generator
-            for el in elements.clone() {
-                let mut combo = group.compose(&gen, &el);
-                while !group.contains_equiv(&elements, &combo) {
-                    elements.push(combo.clone());
-                    combo = group.compose(&gen, &combo);
-                    closure_achieved = false;
-                }
-            }
-
-            // now compose in the other direction
-            for el in elements.clone() {
-                let mut combo = group.compose(&el, &gen);
-                while !group.contains_equiv(&elements, &combo) {
-                    elements.push(combo.clone());
-                    combo = group.compose(&combo, &gen);
-                    closure_achieved = false;
-                }
+            // dbg!(&gen, &el);
+            let mut combo = group.compose(&gen, &el);
+            while !group.contains_equiv(&elements, &combo) {
+                elements.push(combo.clone());
+                combo = group.compose(&gen, &combo);
+                closure_achieved = false;
             }
         }
     }

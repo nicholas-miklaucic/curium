@@ -112,10 +112,10 @@ impl<T: AsRef<Isometry>> Mul<T> for &Isometry {
     }
 }
 
-impl RenderBlocks for Isometry {
+impl RenderBlocks for Matrix4<Frac> {
     fn components(&self) -> Vec<Block> {
         let mut comps = vec![];
-        for row in self.mat().row_iter().take(3) {
+        for row in self.row_iter().take(3) {
             let mut terms = vec![];
             for (i, entry) in row.iter().enumerate() {
                 if !entry.is_zero() {
@@ -159,12 +159,21 @@ impl RenderBlocks for Isometry {
                     }
                 }
             }
+            if terms.is_empty() {
+                terms.push(Block::new_int(0))
+            }
             if !comps.is_empty() {
                 comps.push(Block::Text(", ".into()))
             }
             comps.extend_from_slice(&terms)
         }
         comps
+    }
+}
+
+impl RenderBlocks for Isometry {
+    fn components(&self) -> Vec<Block> {
+        self.mat().components()
     }
 }
 

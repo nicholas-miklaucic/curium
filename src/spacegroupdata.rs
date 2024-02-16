@@ -78,7 +78,22 @@ impl Group<SymmOp> for SpaceGroupSetting {
     }
 
     fn compose(&self, a: &SymmOp, b: &SymmOp) -> SymmOp {
-        self.residue(&a.compose(b))
+        println!("{a} * {b} = ");
+        println!(
+            " {} * {} = ",
+            ITA.render_to_string(&a.to_iso()),
+            ITA.render_to_string(&b.to_iso())
+        );
+        println!("{}", ITA.render_to_string(&(a.to_iso() * b.to_iso())));
+
+        // We have to reduce the isometry modulo a unit cell *before* we convert to a SymmOp. The
+        // reason is that our Fracs can't handle all of the potential SymmOps in the total space of
+        // operations, but we can represent all of the SymmOps we actually need. For example,
+        // combining a rotation y, z, x with t(0, 0, 1) seems harmless, but the resulting axis is
+        // quite weird.
+        let el = SymmOp::classify_affine((a.to_iso() * b.to_iso()).modulo_unit_cell()).unwrap();
+        // println!("{el}");
+        self.residue(&el)
     }
 
     fn equiv(&self, a: &SymmOp, b: &SymmOp) -> bool {
@@ -196,9 +211,7 @@ impl PartialSymmOp {
                 } else {
                     // the remaining cases have many versions depending on the orientation, so
                     // it's most useful to work with generic basis vectors in the plane
-                    let (b1, b2) = pl.basis();
-                    let v1 = b1.as_vec3();
-                    let v2 = b2.as_vec3();
+                    let (v1, v2) = pl.basis_vectors();
                     let v_abc = Vector3::new(a, b, c);
                     if (v1 + v2).scale(f12) == v_abc {
                         Some(Self::NGlide)
@@ -524,8 +537,9 @@ impl SpaceGroupSetting {
 
         // remove unnecessary 1s: anything except trigonal, because P321 and P312 are different, and
         // triclinic, because P1 is the only one!
-        if self.lattice_type != LatticeSystem::Hexagonal
-            && self.lattice_type != LatticeSystem::Triclinic
+        if (self.lattice_type != LatticeSystem::Hexagonal
+            && short_syms[0].first_op().rot_kind() == 3)
+            || (self.lattice_type != LatticeSystem::Triclinic)
         {
             short_syms.retain(|o| o.reflection.is_some() || o.first_op().rot_kind() != 1);
         }

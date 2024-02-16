@@ -131,6 +131,8 @@ impl HallGroupSymbol {
             });
         }
 
+        // dbg!(&linear_generators);
+
         SpaceGroupSetting::from_lattice_and_ops(lat_type, self.centering, linear_generators)
     }
 }
@@ -501,6 +503,7 @@ impl RenderBlocks for HallTranslationSymbol {
         vec![Block::new_text(&format!("{}", self.letter()))]
     }
 }
+
 #[cfg(test)]
 mod tests {
     use crate::markup::{ASCII, ITA};
@@ -509,11 +512,12 @@ mod tests {
 
     #[test]
     fn test_hall_parse() {
-        let cases = [("A -2 -2", "Am2m")];
+        let cases = [("P 2 2 3", "P23"), ("P 6", "P6"), ("-I 4bd 2c 3", "Ia-3d")];
 
         for (hall, hm) in cases {
             let group: HallGroupSymbol = hall.parse().unwrap();
             let setting = group.generate_group();
+            dbg!(&setting);
             println!(
                 "{:?}\n{}",
                 setting.lattice_type,
