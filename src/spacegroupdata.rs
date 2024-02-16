@@ -55,14 +55,14 @@ pub struct SpaceGroupSetting {
     /// The coordinate system.
     pub lattice_type: LatticeSystem,
     /// The centering type of the lattice, defining the translational symmetry of the spacegroup.
-    centering: HallCenteringType,
+    pub centering: HallCenteringType,
     /// The generator operations, not including pure translations.
-    linear_generators: Vec<SymmOp>,
+    pub linear_generators: Vec<SymmOp>,
     /// The symmetry operations that define the group beyond translational symmetry. Should form a
     /// complete subgroup in the quotient group of the space group and the translational subgroup:
     /// i.e., when combining operations, the result should be a translated version of another
     /// operation.
-    symmops: Vec<SymmOp>, // TODO this needs to properly account for centering type
+    pub symmops: Vec<SymmOp>, // TODO this needs to properly account for centering type
 }
 
 /// Implements symmetry operation composition in the quotient group of the translational subgroup of
@@ -74,7 +74,7 @@ impl Group<SymmOp> for SpaceGroupSetting {
     }
 
     fn inv(&self, element: &SymmOp) -> SymmOp {
-        element.inv()
+        self.residue(&element.inv())
     }
 
     fn compose(&self, a: &SymmOp, b: &SymmOp) -> SymmOp {

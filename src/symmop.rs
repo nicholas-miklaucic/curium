@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::f64::consts::TAU;
 use std::fmt::Display;
 use std::iter::successors;
+use std::ops::Mul;
 
 use nalgebra::{
     matrix, ComplexField, Const, Matrix3, Matrix4, OMatrix, Point3, SMatrix, Translation3, Unit,
@@ -444,6 +445,11 @@ impl SimpleRotation {
 
     /// Gets the rotation matrix, with optional inversion.
     pub fn rot_matrix(&self, do_inv: bool) -> Matrix4<Frac> {
+        let origin = if !self.axis.dir.is_conventionally_oriented() {
+            -self.axis.origin
+        } else {
+            self.axis.origin
+        };
         let &[v1, v2, v3] = self
             .axis
             .dir
@@ -464,7 +470,8 @@ impl SimpleRotation {
         let f1 = frac!(1);
         let fm1 = frac!(-1);
 
-        let linear = match (v1, v2, v3, self.kind.order()) {
+        dbg!((v1, v2, v3, self.kind.order()));
+        let m = match (v1, v2, v3, self.kind.order()) {
             // https://cci.lbl.gov/sginfo/hall_symbols.html
             (_, _, _, 1) => Matrix3::identity(),
             (1, 0, 0, 2) => matrix![
@@ -557,6 +564,26 @@ impl SimpleRotation {
                 f1, f0, f0;
                 f0, f0, fm1;
             ],
+            (1, 2, 0, 2) => matrix![
+                fm1, f1, f0;
+                f0, f1, f0;
+                f0, f0, fm1;
+            ],
+            (2, 1, 0, 2) => matrix![
+                f1, f0, f0;
+                f1, fm1, f0;
+                f0, f0, fm1;
+            ],
+            (1, -2, 0, 2) => matrix![
+                fm1, f0, f0;
+                fm1, f1, f0;
+                f0, f0, fm1;
+            ],
+            (2, -1, 0, 2) => matrix![
+                f1, fm1, f0;
+                f0, fm1, f0;
+                f0, f0, fm1;
+            ],
             (1, 1, 1, 3) => matrix![
                 f0, f0, f1;
                 f1, f0, f0;
@@ -583,12 +610,9 @@ impl SimpleRotation {
             }
         };
 
-        let linear = if do_inv { -linear } else { linear };
-
-        let m = linear.to_homogeneous();
         // we can do inverse, for negative sense, by simply applying order - 1 times
         let m = if self.kind.as_frac().is_negative() {
-            let mut new_m = m.clone();
+            let mut new_m = Matrix3::<Frac>::identity();
             for _ in 0..(self.kind.order() - 1) {
                 new_m = new_m * m;
             }
@@ -597,12 +621,38 @@ impl SimpleRotation {
             m
         };
 
-        let o = self.axis.origin;
+        let m = m.to_homogeneous();
+
+        let o = origin;
+
         let tau = Translation3::new(o.x, o.y, o.z);
         // apply origin shift
         let shift = tau.to_homogeneous();
         let shift_inv = tau.inverse().to_homogeneous();
-        shift * m * shift_inv
+
+        let inv_mat = matrix![
+            fm1, f0, f0, f0;
+            f0, fm1, f0, f0;
+            f0, f0, fm1, f0;
+            f0, f0, f0, f1;
+        ];
+        let m = if do_inv {
+            let mut v = origin.coords.to_homogeneous();
+            v[(3, 0)] = f1;
+            println!(
+                "--{}\n{}\n{}\n{}\n{}",
+                v,
+                shift_inv * v,
+                m * shift_inv * v,
+                inv_mat * m * shift_inv * v,
+                shift * inv_mat * m * shift_inv * v
+            );
+            shift * inv_mat * m * shift_inv
+        } else {
+            shift * m * shift_inv
+        };
+
+        m
     }
 }
 
@@ -1051,8 +1101,12 @@ impl SymmOp {
             SymmOp::Rotation(rot) => Isometry::new_affine(rot.rot_matrix(false)),
             SymmOp::Rotoinversion(rot) => Isometry::new_affine(rot.rot_matrix(true)),
             SymmOp::Screw(rot, dir, screw) => {
-                let tau_m = Translation3::from(rot.axis.dir.scaled_vec(Frac::from(*screw)))
-                    .to_homogeneous();
+                let tau_m = Translation3::from(
+                    rot.axis
+                        .dir
+                        .scaled_vec(Frac::from(*screw) / frac!(rot.kind.order())),
+                )
+                .to_homogeneous();
 
                 Isometry::new_affine(tau_m * rot.rot_matrix(dir == &RotationDirectness::Improper))
             }
@@ -1369,12 +1423,12 @@ impl SymmOp {
             // the location part of the translation, which isn't a screw or a glide
             let w_l = w - w_g;
 
-            // println!("Y(±W): {}", Y);
-            // println!("Y(W): {}", YW);
-            // println!("w: {}", w);
-            // println!("t: {}", t);
-            // println!("w_l: {}", w_l);
-            // println!("w_g: {}", w_g);
+            println!("Y(±W): {}", Y);
+            println!("Y(W): {}", YW);
+            println!("w: {}", w);
+            println!("t: {}", t);
+            println!("w_l: {}", w_l);
+            println!("w_g: {}", w_g);
 
             // (b) Fixed points
 
@@ -1386,7 +1440,7 @@ impl SymmOp {
             // We first put this into the form (W - I)f = -w_l. We now have a classical matrix
             // equation. We can then put (W - I) in row echelon form. We use an augmented form
 
-            // [W | I | -wl]
+            // [W - I | I | -wl]
 
             // When we're done, the entries of the zero rows in I give the kernel, and the non-zero
             // rows in -w_l give a first solution.
@@ -1398,12 +1452,12 @@ impl SymmOp {
                 I.column(0),
                 I.column(1),
                 I.column(2),
-                w_l.column(0),
+                (w_l.scale(frac!(-1))).column(0),
             ]);
-            // println!("aug: {}", aug);
+            println!("aug: {}", aug);
             let mut aug = aug.clone_owned();
             gauss_eliminate(&mut aug);
-            // println!("aug eliminated: {}", aug);
+            println!("aug eliminated: {}", aug);
 
             // aug is now in its reduced form. If the first three entries in a row are 0, then we
             // check that the last entry is 0 (otherwise our system is unsolvable!), then we read
@@ -1417,7 +1471,7 @@ impl SymmOp {
                     // if this fails, the system has no solutions and we goofed
                     assert!(aug[(row, 6)].is_zero());
                     // add basis vector to kernel basis
-                    kernel_basis.push(aug.fixed_view::<1, 3>(row, 3).transpose());
+                    kernel_basis.push(aug.fixed_view::<3, 1>(row, 3).transpose());
                 } else {
                     // part of solution
                     let mut sol_dim = 0;
@@ -1433,7 +1487,8 @@ impl SymmOp {
 
             // dbg!(axis);
 
-            // dbg!(&kernel_basis);
+            dbg!(&center);
+            dbg!(&kernel_basis);
             match kernel_basis[..] {
                 [] => {
                     // single solution: rotoinversion center
@@ -1590,7 +1645,7 @@ mod tests {
             Plane::from_basis_and_origin(
                 Vector3::new(frac!(1), frac!(-1), frac!(0)),
                 Vector3::new(frac!(0), frac!(0), frac!(1)),
-                Point3::new(frac!(0), frac!(-1 / 2), frac!(-1 / 2)),
+                Point3::new(frac!(1 / 2), frac!(0), frac!(0)),
             ),
             Vector3::new(frac!(1 / 4), frac!(-1 / 4), frac!(1 / 4)),
         )
@@ -1612,12 +1667,36 @@ mod tests {
         let iso = Isometry::from_str("y+1/4, -x+1/4, z+3/4").unwrap();
         let symm = SymmOp::classify_affine(iso).unwrap();
         let ans = SymmOp::new_generalized_rotation(
-            RotationAxis::new(Vector3::z(), Point3::new(frac!(-1 / 4), frac!(0), frac!(0))),
+            RotationAxis::new(Vector3::z(), Point3::new(frac!(1 / 4), frac!(0), frac!(0))),
             RotationKind::NegFour,
             true,
             Vector3::new(frac!(0), frac!(0), frac!(3 / 4)),
         );
 
+        assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
+        assert_eq!(
+            symm.to_iso(),
+            ans.to_iso(),
+            "{}\n{}",
+            symm.to_iso().mat(),
+            ans.to_iso().mat()
+        )
+    }
+
+    #[test]
+    fn test_rotoinv_to_iso() {
+        // example 2 from ITA 1.2.2.4
+        let iso = Isometry::from_str("y, -z+1/2, x+1/2").unwrap();
+        let symm = SymmOp::classify_affine(iso).unwrap();
+        let ans = SymmOp::new_generalized_rotation(
+            RotationAxis::new(
+                Vector3::new(frac!(1), frac!(-1), frac!(-1)),
+                Point3::new(frac!(0), frac!(0), frac!(1 / 2)),
+            ),
+            RotationKind::NegThree,
+            false,
+            Vector3::zero(),
+        );
         assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
         assert_eq!(
             symm.to_iso(),
@@ -1636,7 +1715,7 @@ mod tests {
         let ans = SymmOp::new_generalized_rotation(
             RotationAxis::new(
                 Vector3::new(frac!(-1), frac!(1), frac!(-1)),
-                Point3::new(frac!(0), frac!(-1 / 2), frac!(-1 / 2)),
+                Point3::new(frac!(0), frac!(1 / 2), frac!(1 / 2)),
             ),
             RotationKind::PosThree,
             false,
@@ -1702,10 +1781,10 @@ mod tests {
         for op in many_symmops() {
             // assert_eq!(SymmOp::classify_affine(op.to_iso()), Ok(op));
             // println!("{op:?}");
-            let m2 = op.to_iso().mat();
+            let m2 = op.to_iso();
             // println!("{m2}");
-            let m1 = SymmOp::classify_affine(op.to_iso()).unwrap().to_iso().mat();
-            assert_eq!(m1, m2, "{m1} {m2} {op:?}");
+            let m1 = SymmOp::classify_affine(op.to_iso()).unwrap().to_iso();
+            assert_eq!(m2, m1, "{m2} {m1} {op:?}");
         }
     }
 
@@ -1835,13 +1914,6 @@ mod tests {
                     Point3::<Frac>::new(frac!(0), frac!(2), frac!(0)),
                 ),
                 RotationKind::NegFour,
-            )),
-            SymmOp::Rotoinversion(SimpleRotation::new(
-                RotationAxis::new(
-                    vector![frac!(1), frac!(-1), frac!(0)],
-                    Point3::<Frac>::new(frac!(1 / 2), frac!(-1 / 2), frac!(0)),
-                ),
-                RotationKind::Two,
             )),
             SymmOp::Rotoinversion(SimpleRotation::new(
                 RotationAxis::new(

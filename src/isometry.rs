@@ -372,4 +372,17 @@ mod tests {
             iso.mat()
         )
     }
+
+    #[test]
+    fn test_mod_one() {
+        let iso_1 = Isometry::from_str("-y+1/4, -x+3/4, z+1/4").unwrap();
+        let iso_2 = Isometry::from_str("-y-3/4, -x-5/4, z+1/4").unwrap();
+        dbg!(iso_1, iso_2, iso_2.modulo_unit_cell(),);
+        println!(
+            "{} {}",
+            ITA.render_to_string(&iso_1),
+            ITA.render_to_string(&iso_2)
+        );
+        assert_eq!(iso_2.modulo_unit_cell(), iso_1);
+    }
 }

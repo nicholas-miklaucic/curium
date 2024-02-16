@@ -116,6 +116,44 @@ pub fn generate_elements<E: GroupElement, G: FinitelyGeneratedGroup<E>>(group: &
     elements
 }
 
+/// An automated implementation of [`FiniteGroup::elements`] that uses Dimino's algorithm.
+pub fn generate_elements_dimino<E: GroupElement, G: FinitelyGeneratedGroup<E>>(
+    group: &G,
+) -> Vec<E> {
+    let gens: Vec<E> = group
+        .generators()
+        .into_iter()
+        .flat_map(|e| [group.residue(&e)])
+        .collect();
+    let mut elements = vec![group.identity()];
+
+    for i in 0..gens.len() {
+        // subgroup of G, G_i, given by gens[0..i]
+        let d = elements.clone();
+        let mut n = vec![group.identity()];
+
+        while !n.is_empty() {
+            let mut new_n = vec![];
+            for a in n {
+                for g in gens.iter().skip(i) {
+                    let ag = group.compose(&a, g);
+                    if !group.contains_equiv(&elements, &ag) {
+                        // G_i * g
+                        for el in &d {
+                            let ap = group.compose(el, &ag);
+                            elements.push(ap.clone());
+                            new_n.push(ap);
+                        }
+                    }
+                }
+            }
+            n = new_n;
+        }
+    }
+
+    elements
+}
+
 /// The integers mod n over addition, represented using the integers 0-(n-1). Mainly used for
 /// testing.
 #[derive(Debug, Clone, Copy)]
@@ -161,6 +199,10 @@ impl FiniteGroup<usize> for ZAddMod {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
+    use crate::{hall::HallGroupSymbol, markup::ITA, symmop::SymmOp};
+
     use super::*;
     use pretty_assertions::assert_eq;
 
@@ -179,5 +221,43 @@ mod tests {
                     .collect::<Vec<usize>>()
             );
         }
+    }
+
+    #[test]
+    fn test_dimino() {
+        let grp = HallGroupSymbol::from_str("F 2 -2d").unwrap();
+        let sg = grp.generate_group();
+
+        let s1 = generate_elements(&sg);
+        let s2 = generate_elements_dimino(&sg);
+
+        let ops1: Vec<String> = s1
+            .iter()
+            .map(|x| ITA.render_to_string(&x.to_iso()))
+            .collect();
+        let ops2: Vec<String> = s2
+            .iter()
+            .map(|x| ITA.render_to_string(&x.to_iso()))
+            .collect();
+
+        println!("{}\n---\n{}", ops1.join("\n "), ops2.join("\n "));
+        for s in &s1 {
+            assert_eq!(&SymmOp::classify_affine(s.to_iso()).unwrap(), s);
+            assert!(
+                sg.contains_equiv(&s2, s),
+                "{}",
+                ITA.render_to_string(&s.to_iso())
+            );
+        }
+        for s in &s2 {
+            assert_eq!(&SymmOp::classify_affine(s.to_iso()).unwrap(), s);
+            assert!(
+                sg.contains_equiv(&s1, s),
+                " {}",
+                ITA.render_to_string(&s.to_iso())
+            );
+        }
+
+        assert_eq!(s1.len(), s2.len());
     }
 }
