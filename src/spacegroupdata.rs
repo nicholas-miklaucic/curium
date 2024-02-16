@@ -78,13 +78,16 @@ impl Group<SymmOp> for SpaceGroupSetting {
     }
 
     fn compose(&self, a: &SymmOp, b: &SymmOp) -> SymmOp {
-        println!("{a} * {b} = ");
-        println!(
-            " {} * {} = ",
-            ITA.render_to_string(&a.to_iso()),
-            ITA.render_to_string(&b.to_iso())
-        );
-        println!("{}", ITA.render_to_string(&(a.to_iso() * b.to_iso())));
+        // println!("{a} * {b} = ");
+        // println!(
+        //     " {} * {} = ",
+        //     ITA.render_to_string(&a.to_iso()),
+        //     ITA.render_to_string(&b.to_iso())
+        // );
+        // println!(
+        //     "{}",
+        //     ITA.render_to_string(&(a.to_iso() * b.to_iso()).modulo_unit_cell())
+        // );
 
         // We have to reduce the isometry modulo a unit cell *before* we convert to a SymmOp. The
         // reason is that our Fracs can't handle all of the potential SymmOps in the total space of
@@ -92,7 +95,7 @@ impl Group<SymmOp> for SpaceGroupSetting {
         // combining a rotation y, z, x with t(0, 0, 1) seems harmless, but the resulting axis is
         // quite weird.
         let el = SymmOp::classify_affine((a.to_iso() * b.to_iso()).modulo_unit_cell()).unwrap();
-        // println!("{el}");
+        // println!("el: {el}");
         self.residue(&el)
     }
 

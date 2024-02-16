@@ -4,6 +4,7 @@
 use std::{default, f32::MIN, str::FromStr};
 
 use nalgebra::{vector, Point3, Translation3, Vector, Vector3};
+use simba::scalar::SupersetOf;
 use thiserror::Error;
 
 use crate::{
@@ -124,14 +125,22 @@ impl HallGroupSymbol {
                 frac!(self.shift.2) / f12,
             ));
 
-            let origin_shift_inv = origin_shift.inv();
+            let origin_shift_inv = SymmOp::Translation(Vector3::new(
+                frac!(self.shift.0) / -f12,
+                frac!(self.shift.1) / -f12,
+                frac!(self.shift.2) / -f12,
+            ));
 
             linear_generators.iter_mut().for_each(|o| {
-                *o = origin_shift.compose(o).compose(&origin_shift_inv);
+                let iso = origin_shift.to_iso() * o.to_iso() * origin_shift_inv.to_iso();
+                println!("{} {}", iso, iso.modulo_unit_cell());
+                *o = SymmOp::classify_affine(iso.modulo_unit_cell()).unwrap();
             });
         }
 
-        // dbg!(&linear_generators);
+        for gen in &linear_generators {
+            println!("gen: {}\n{}", gen, gen.to_iso());
+        }
 
         SpaceGroupSetting::from_lattice_and_ops(lat_type, self.centering, linear_generators)
     }
@@ -516,8 +525,8 @@ mod tests {
             ("P 2 2 3", "P23"),
             ("P 6", "P6"),
             ("F 2 -2d", "Fdd2"),
-            // ("P 65 2 (0 0 1)", "P6522"),
-            // ("-I 4bd 2c 3", "Ia-3d")
+            // ("P 61 2 (0 0 -1)", "P6522"),
+            ("-I 4bd 2c 3", "Ia-3d"),
         ];
 
         for (hall, hm) in cases {
