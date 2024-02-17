@@ -121,6 +121,7 @@ impl Direction {
                 // this axis could be any scale
                 continue;
             } else {
+                // dbg!(self, v, tau, full_tau);
                 let new_scale = tau_i / full_i;
                 if scale.is_some_and(|f| f != new_scale) {
                     // this could be an error in the future, perhaps
@@ -453,7 +454,7 @@ impl SimpleRotation {
     }
 
     /// Gets the rotation matrix, with optional inversion.
-    pub fn rot_matrix(&self, do_inv: bool) -> Matrix4<Frac> {
+    pub fn rot_matrix(&self, do_inv: bool, is_hex: bool) -> Matrix4<Frac> {
         let origin = if !self.axis.dir.is_conventionally_oriented() {
             -self.axis.origin
         } else {
@@ -483,14 +484,24 @@ impl SimpleRotation {
         let m = match (v1, v2, v3, self.kind.order()) {
             // https://cci.lbl.gov/sginfo/hall_symbols.html
             (_, _, _, 1) => Matrix3::identity(),
-            (1, 0, 0, 2) => matrix![
+            (1, 0, 0, 2) if is_hex => matrix![
+                f1, fm1, f0;
+                f0, fm1, f0;
+                f0, f0, fm1;
+            ],
+            (1, 0, 0, 2) if !is_hex => matrix![
                 f1, f0, f0;
                 f0, fm1, f0;
                 f0, f0, fm1;
             ],
-            (0, 1, 0, 2) => matrix![
+            (0, 1, 0, 2) if !is_hex => matrix![
                 fm1, f0, f0;
                 f0, f1, f0;
+                f0, f0, fm1;
+            ],
+            (0, 1, 0, 2) if is_hex => matrix![
+                fm1, f0, f0;
+                fm1, f1, f0;
                 f0, f0, fm1;
             ],
             (0, 0, 1, 2) => matrix![
@@ -675,7 +686,7 @@ impl SimpleRotation {
 /// negative order they wrap around: a -1 screw in a 6-fold rotation is equivalent to a 5 screw up
 /// to a unit cell. [`SymmOp`] does not assume equivalence up to a unit cell, so negative screw
 /// orders are necessary.
-pub type ScrewOrder = i8;
+pub type ScrewOrder = Frac;
 
 /// Whether a rotation is `Proper` (determinant 1, preserves orientation) or `Improper` (determinant
 /// -1, flips orientation).
@@ -900,17 +911,17 @@ impl SymmOp {
             (true, true) => Self::Rotation(rot),
             (false, true) => Self::Rotoinversion(rot),
             (proper, false) => {
-                let screw_scale = axis.dir.compute_scale(tau).expect(&format!(
+                let screw_order = axis.dir.compute_scale(tau).expect(&format!(
                     "Bad screw translation {} for dir {}",
                     tau, axis.dir
                 ));
-                let screw_order = screw_scale * Frac::from(kind.order());
-                let screw_order = if screw_order.numerator % Frac::DENOM != 0 {
-                    dbg!(screw_order, axis, tau, screw_scale, kind, is_proper);
-                    panic!("Screw translation not proper scale");
-                } else {
-                    screw_order.numerator / Frac::DENOM
-                };
+                // let screw_order = screw_scale * Frac::from(kind.order());
+                // let screw_order = if screw_order.numerator % Frac::DENOM != 0 {
+                //     dbg!(screw_order, axis, tau, screw_scale, kind, is_proper);
+                //     panic!("Screw translation not proper scale");
+                // } else {
+                //     screw_order.numerator / Frac::DENOM
+                // };
                 Self::Screw(
                     rot,
                     if proper {
@@ -918,7 +929,7 @@ impl SymmOp {
                     } else {
                         RotationDirectness::Improper
                     },
-                    screw_order as i8,
+                    screw_order,
                 )
             }
         };
@@ -958,7 +969,7 @@ impl SymmOp {
                         SymmOp::Rotation(rot) => SymmOp::Rotation(rot.as_opposite_axis()),
                         SymmOp::Rotoinversion(rot) => SymmOp::Rotoinversion(rot.as_opposite_axis()),
                         SymmOp::Screw(rot, directness, order) => {
-                            SymmOp::Screw(rot.as_opposite_axis(), *directness, -order)
+                            SymmOp::Screw(rot.as_opposite_axis(), *directness, -*order)
                         }
                         _ => panic!(),
                     }
@@ -998,11 +1009,9 @@ impl SymmOp {
             SymmOp::Translation(tau) => SymmOp::Translation(tau.map(mod_unit)),
             SymmOp::Rotation(rot) => SymmOp::Rotation(rot.modulo_unit_cell()),
             SymmOp::Rotoinversion(rot) => SymmOp::Rotoinversion(rot.modulo_unit_cell()),
-            SymmOp::Screw(rot, dir, tau) => SymmOp::Screw(
-                rot.modulo_unit_cell(),
-                dir,
-                tau.rem_euclid(rot.kind.order() as ScrewOrder),
-            ),
+            SymmOp::Screw(rot, dir, tau) => {
+                SymmOp::Screw(rot.modulo_unit_cell(), dir, tau.modulo_one())
+            }
             SymmOp::Reflection(plane) => SymmOp::Reflection(plane.modulo_unit_cell()),
             SymmOp::Glide(plane, tau) => SymmOp::Glide(plane.modulo_unit_cell(), tau.map(mod_unit)),
         }
@@ -1014,7 +1023,7 @@ impl SymmOp {
     /// 0) to (5/4, 0, 0) and will be unchanged, but a translation by <11/2, 0, 0> will be mapped to
     /// <1/2, 0, 0>.
     pub fn modulo_unit_cell(&self) -> Self {
-        Self::classify_affine(self.to_iso().modulo_unit_cell()).unwrap()
+        Self::classify_affine(self.to_iso(false).modulo_unit_cell()).unwrap()
     }
 
     /// Gets the rotation associated with the operation, if one exists, otherwise `None`.
@@ -1055,11 +1064,7 @@ impl SymmOp {
     pub fn translation_component(&self) -> Option<Vector3<Frac>> {
         match *self {
             Self::Translation(tau) => Some(tau),
-            Self::Screw(rot, _dir, tau) => Some(
-                rot.axis
-                    .dir
-                    .scaled_vec(frac!(tau) / frac!(rot.kind.order())),
-            ),
+            Self::Screw(rot, _dir, tau) => Some(rot.axis.dir.scaled_vec(tau)),
             Self::Glide(_plane, tau) => Some(tau),
             _ => None,
         }
@@ -1095,7 +1100,7 @@ impl SymmOp {
     }
 
     /// Gets the isometry corresponding to the geometric operation.
-    pub fn to_iso(&self) -> Isometry {
+    pub fn to_iso(&self, is_hex: bool) -> Isometry {
         match &self {
             SymmOp::Identity => Isometry::identity(),
             SymmOp::Inversion(tau) => {
@@ -1107,29 +1112,26 @@ impl SymmOp {
             SymmOp::Translation(tau) => {
                 return Isometry::new_rot_tau(Matrix3::identity(), tau.clone_owned())
             }
-            SymmOp::Rotation(rot) => Isometry::new_affine(rot.rot_matrix(false)),
-            SymmOp::Rotoinversion(rot) => Isometry::new_affine(rot.rot_matrix(true)),
+            SymmOp::Rotation(rot) => Isometry::new_affine(rot.rot_matrix(false, is_hex)),
+            SymmOp::Rotoinversion(rot) => Isometry::new_affine(rot.rot_matrix(true, is_hex)),
             SymmOp::Screw(rot, dir, screw) => {
-                let tau_m = Translation3::from(
-                    rot.axis
-                        .dir
-                        .scaled_vec(Frac::from(*screw) / frac!(rot.kind.order())),
-                )
-                .to_homogeneous();
+                let tau_m = Translation3::from(rot.axis.dir.scaled_vec(*screw)).to_homogeneous();
 
-                Isometry::new_affine(tau_m * rot.rot_matrix(dir == &RotationDirectness::Improper))
+                Isometry::new_affine(
+                    tau_m * rot.rot_matrix(dir == &RotationDirectness::Improper, is_hex),
+                )
             }
             SymmOp::Reflection(plane) => Isometry::new_affine(
                 SimpleRotation::new(
                     RotationAxis::new(plane.n.as_vec3(), Point3::origin() + plane.origin()),
                     RotationKind::Two,
                 )
-                .rot_matrix(true),
+                .rot_matrix(true, is_hex),
             ),
             SymmOp::Glide(plane, tau) => {
                 let tau_m = Translation3::new(tau.x, tau.y, tau.z).to_homogeneous();
 
-                let ref_m = SymmOp::Reflection(*plane).to_iso().mat();
+                let ref_m = SymmOp::Reflection(*plane).to_iso(is_hex).mat();
 
                 Isometry::new_affine(tau_m * ref_m)
             }
@@ -1148,10 +1150,7 @@ impl SymmOp {
             SymmOp::Rotation(_r) => (*self, Vector3::zero()),
             SymmOp::Rotoinversion(_r) => (*self, Vector3::zero()),
             SymmOp::Screw(r, direct, screw) => {
-                let tau = r
-                    .axis
-                    .dir
-                    .scaled_vec(r.kind.as_frac().abs() * Frac::from(*screw as BaseInt));
+                let tau = r.axis.dir.scaled_vec(r.kind.as_frac().abs() * (*screw));
                 match direct {
                     RotationDirectness::Proper => (SymmOp::Rotation(*r), tau),
                     RotationDirectness::Improper => (SymmOp::Rotoinversion(*r), tau),
@@ -1164,12 +1163,12 @@ impl SymmOp {
 
     /// The inverse symmetry operation.
     pub fn inv(&self) -> SymmOp {
-        SymmOp::classify_affine(self.to_iso().inv()).unwrap()
+        SymmOp::classify_affine(self.to_iso(false).inv()).unwrap()
     }
 
     /// Computes `self * rhs`: the operation of doing `rhs` and then doing `self`.
     pub fn compose(&self, rhs: &Self) -> Self {
-        SymmOp::classify_affine(self.to_iso() * rhs.to_iso()).unwrap()
+        SymmOp::classify_affine(self.to_iso(false) * rhs.to_iso(false)).unwrap()
     }
 }
 
@@ -1428,6 +1427,16 @@ impl SymmOp {
                 .take(order as usize)
                 .sum();
             let t = YW * w;
+            for t_el in t.iter() {
+                if t_el.numerator % order != 0 {
+                    println!("W: {}", W);
+                    println!("Y(±W): {}", Y);
+                    println!("Y(W): {}", YW);
+                    println!("w: {}", w);
+                    println!("t: {}", t);
+                    return Err(SymmOpError::NotSymmetryOperation(m));
+                }
+            }
             let w_g = t / frac!(order);
             // the location part of the translation, which isn't a screw or a glide
             let w_l = w - w_g;
@@ -1467,6 +1476,7 @@ impl SymmOp {
             // println!("aug: {}", aug);
             let mut aug = aug.clone_owned();
             gauss_eliminate(&mut aug);
+            // println!("aug eliminated: {aug}");
 
             // aug is now in its reduced form. If the first three entries in a row are 0, then we
             // check that the last entry is 0 (otherwise our system is unsolvable!), then we read
@@ -1510,7 +1520,17 @@ impl SymmOp {
 
             if do_cross {
                 // dbg!(&sol, &kernel_basis, kernel_basis[0].cross(&sol));
-                kernel_basis.push(kernel_basis[0].cross(&sol));
+                let mut other = Vector3::zeros();
+                for (i, s) in sol.iter().enumerate() {
+                    if s.is_zero() {
+                        other[i] = frac!(1);
+                        break;
+                    }
+                }
+                if other.is_zero() {
+                    panic!();
+                }
+                kernel_basis.push(other.cross(&sol));
             }
 
             // We already covered the cases where the kernel has dimension 3: identity and
@@ -1684,11 +1704,11 @@ mod tests {
 
         assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
         assert_eq!(
-            symm.to_iso(),
-            ans.to_iso(),
+            symm.to_iso(false),
+            ans.to_iso(false),
             "{}\n{}",
-            symm.to_iso().mat(),
-            ans.to_iso().mat()
+            symm.to_iso(false).mat(),
+            ans.to_iso(false).mat()
         )
     }
 
@@ -1706,11 +1726,11 @@ mod tests {
 
         assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
         assert_eq!(
-            symm.to_iso(),
-            ans.to_iso(),
+            symm.to_iso(false),
+            ans.to_iso(false),
             "{}\n{}",
-            symm.to_iso().mat(),
-            ans.to_iso().mat()
+            symm.to_iso(false).mat(),
+            ans.to_iso(false).mat()
         )
     }
 
@@ -1730,11 +1750,11 @@ mod tests {
         );
         assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
         assert_eq!(
-            symm.to_iso(),
-            ans.to_iso(),
+            symm.to_iso(false),
+            ans.to_iso(false),
             "{}\n{}",
-            symm.to_iso().mat(),
-            ans.to_iso().mat()
+            symm.to_iso(false).mat(),
+            ans.to_iso(false).mat()
         )
     }
 
@@ -1754,11 +1774,11 @@ mod tests {
         );
         assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
         assert_eq!(
-            symm.to_iso(),
-            ans.to_iso(),
+            symm.to_iso(false),
+            ans.to_iso(false),
             "{}\n{}",
-            symm.to_iso().mat(),
-            ans.to_iso().mat()
+            symm.to_iso(false).mat(),
+            ans.to_iso(false).mat()
         )
     }
 
@@ -1799,24 +1819,38 @@ mod tests {
         );
         assert_eq!(symm, ans, "{:?} {:?}", symm, ans);
         assert_eq!(
-            symm.to_iso(),
-            ans.to_iso(),
+            symm.to_iso(false),
+            ans.to_iso(false),
             "{}\n{}",
-            symm.to_iso().mat(),
-            ans.to_iso().mat()
+            symm.to_iso(false).mat(),
+            ans.to_iso(false).mat()
         )
     }
 
     #[test]
     fn classify_round_trip() {
         for op in many_symmops() {
-            // assert_eq!(SymmOp::classify_affine(op.to_iso()), Ok(op));
+            // assert_eq!(SymmOp::classify_affine(op.to_iso(false)), Ok(op));
             // println!("{op:?}");
-            let m2 = op.to_iso();
-            // println!("{m2}");
-            let m1 = SymmOp::classify_affine(op.to_iso()).unwrap().to_iso();
-            assert_eq!(m2, m1, "{m2} {m1} {op:?}");
+            for is_hex in [true, false] {
+                let m2 = op.to_iso(is_hex);
+                // println!("{m2}");
+                let m1 = SymmOp::classify_affine(op.to_iso(is_hex))
+                    .unwrap()
+                    .to_iso(is_hex);
+
+                assert_eq!(m2, m1, "{m2} {m1} {op:?} {is_hex}");
+            }
         }
+    }
+
+    #[test]
+    fn test_inv_compose() {
+        let inv = SymmOp::Inversion(Point3::origin());
+        let tau = SymmOp::Translation(Vector3::new(frac!(1 / 2), frac!(1 / 2), frac!(1 / 2)));
+        let inv2 = SymmOp::Inversion(Point3::new(frac!(1 / 4), frac!(1 / 4), frac!(1 / 4)));
+
+        assert_eq!(tau.compose(&inv), inv2);
     }
 
     #[test]
@@ -1825,11 +1859,11 @@ mod tests {
             let (rot, tau) = op.to_rot_and_tau();
             // dbg!(op);
             let tau = SymmOp::Translation(tau);
-            // println!("rot {}\ntau {}", rot.to_iso().mat(), tau.to_iso().mat());
-            // println!("combo {}", (tau.to_iso() * rot.to_iso()).mat());
+            // println!("rot {}\ntau {}", rot.to_iso(false).mat(), tau.to_iso(false).mat());
+            // println!("combo {}", (tau.to_iso(false) * rot.to_iso(false)).mat());
             let tau_rot = tau.compose(&rot);
             // assert_eq!(tau_rot, op)
-            let (m1, m2) = (tau_rot.to_iso().mat(), op.to_iso().mat());
+            let (m1, m2) = (tau_rot.to_iso(false).mat(), op.to_iso(false).mat());
             assert_eq!(m1, m2, "{m1} {m2}");
         }
     }
@@ -1843,17 +1877,17 @@ mod tests {
     fn test_iso_display() {
         for op in many_symmops() {
             // println!("{:?}", op);
-            // println!("{}", op.to_iso());
-            // println!("{}", op.to_iso().inv());
+            // println!("{}", op.to_iso(false));
+            // println!("{}", op.to_iso(false).inv());
             assert_eq!(
-                Isometry::from_str(ASCII.render_to_string(&op.to_iso()).as_str()).unwrap(),
-                op.to_iso(),
+                Isometry::from_str(ASCII.render_to_string(&op.to_iso(false)).as_str()).unwrap(),
+                op.to_iso(false),
                 "{}\n{}\n{}",
-                ASCII.render_to_string(&op.to_iso()),
-                Isometry::from_str(ASCII.render_to_string(&op.to_iso()).as_str())
+                ASCII.render_to_string(&op.to_iso(false)),
+                Isometry::from_str(ASCII.render_to_string(&op.to_iso(false)).as_str())
                     .unwrap()
                     .mat(),
-                op.to_iso().mat()
+                op.to_iso(false).mat()
             )
         }
     }
@@ -1865,12 +1899,12 @@ mod tests {
     //             if op.translation_component().is_none() {
     //                 if let Some(partial) = PartialSymmOp::try_from_op(&op) {
     //                     let mut op1 = partial.to_symmop_with_dir(dir);
-    //                     if op1.to_iso().modulo_unit_cell() != op.to_iso().modulo_unit_cell() {
+    //                     if op1.to_iso(false).modulo_unit_cell() != op.to_iso(false).modulo_unit_cell() {
     //                         op1 = op1.inv();
     //                     }
     //                     assert_eq!(
-    //                         op1.to_iso().modulo_unit_cell(),
-    //                         op.to_iso().modulo_unit_cell(),
+    //                         op1.to_iso(false).modulo_unit_cell(),
+    //                         op.to_iso(false).modulo_unit_cell(),
     //                         "\n{:#?}\n{:#?}\n{:?} {:?}",
     //                         op1,
     //                         op,
@@ -1885,14 +1919,26 @@ mod tests {
 
     fn many_symmops() -> Vec<SymmOp> {
         let mut ops = vec![];
+        ops.extend_from_slice(&hard_symmops());
         ops.extend_from_slice(&many_symmops_base());
-        ops.extend(many_symmops_base().iter().map(|o| {
-            // dbg!(o, o.conventional());
-            // println!("{}", o.to_iso());
-            // println!("{}", o.to_iso().inv());
-            o.inv()
-        }));
+        let ops_inv: Vec<SymmOp> = ops
+            .iter()
+            .map(|o| {
+                // dbg!(o, o.conventional());
+                // println!("{}", o.to_iso(false));
+                // println!("{}", o.to_iso(false).inv());
+                o.inv()
+            })
+            .collect();
+        ops.extend(ops_inv);
         ops
+    }
+
+    fn hard_symmops() -> Vec<SymmOp> {
+        vec!["-x+y,y,-z+1/2"]
+            .into_iter()
+            .map(|s| SymmOp::classify_affine(Isometry::from_str(s).unwrap()).unwrap())
+            .collect()
     }
 
     fn many_symmops_base() -> Vec<SymmOp> {
@@ -1962,7 +2008,7 @@ mod tests {
                     RotationKind::PosThree,
                 ),
                 RotationDirectness::Proper,
-                1,
+                frac!(1 / 3),
             ),
             SymmOp::Screw(
                 SimpleRotation::new(
@@ -1973,7 +2019,7 @@ mod tests {
                     RotationKind::NegFour,
                 ),
                 RotationDirectness::Improper,
-                -3,
+                frac!(-3 / 4),
             ),
             SymmOp::Screw(
                 SimpleRotation::new(
@@ -1984,7 +2030,7 @@ mod tests {
                     RotationKind::NegSix,
                 ),
                 RotationDirectness::Improper,
-                5,
+                frac!(5 / 6),
             ),
             SymmOp::Reflection(Plane::from_basis_and_origin(
                 vector![frac!(0), frac!(0), frac!(1)],

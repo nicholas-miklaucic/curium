@@ -9,6 +9,8 @@ use nom::multi::{many0, many1, separated_list0};
 use nom::sequence::{separated_pair, tuple};
 use nom::IResult;
 
+use crate::frac;
+use crate::fract::BaseInt;
 use crate::hall::{
     HallAxisSymbol, HallCenteringType, HallGroupSymbol, HallOpSymbol, HallTranslationSymbol,
     RotationGroup,
@@ -79,6 +81,7 @@ pub fn hall_origin_shift(input: &str) -> IResult<&str, Option<(i8, i8, i8)>> {
 
 /// Parses a Hall axis symbol.
 pub fn hall_axis_symbol(input: &str) -> IResult<&str, HallAxisSymbol> {
+    // TODO double prime and prime are flipped
     alt((
         value(HallAxisSymbol::X, one_of("Xx")),
         value(HallAxisSymbol::Y, one_of("Yy")),
@@ -113,6 +116,8 @@ pub fn hall_rot_group(input: &str) -> IResult<&str, RotationGroup> {
         RotationDirectness::Proper
     };
 
+    let screw = frac!(screw) / frac!(rot);
+
     let group = RotationGroup::try_new(rot, sign, screw).unwrap();
 
     Ok((o, group))
@@ -136,7 +141,7 @@ pub fn hall_rot(input: &str) -> IResult<&str, RotOrder> {
 }
 
 /// Parses a Hall screw, with an underscore or without.
-pub fn hall_screw(input: &str) -> IResult<&str, ScrewOrder> {
+pub fn hall_screw(input: &str) -> IResult<&str, BaseInt> {
     let (o, (_underscore, s)) = tuple((
         opt(tag("_")),
         opt(alt((
@@ -237,7 +242,7 @@ pub fn hm_rot(input: &str) -> IResult<&str, PartialSymmOp> {
 
     let r: i8 = r.to_string().parse().unwrap();
 
-    Ok((o, PartialSymmOp::GenRotation(r * sign, 0)))
+    Ok((o, PartialSymmOp::GenRotation(r * sign, frac!(0))))
 }
 
 /// Parses a screw, assuming that there is never a screw rotoinversion. Can accept with or without
@@ -252,7 +257,7 @@ pub fn hm_screw(input: &str) -> IResult<&str, PartialSymmOp> {
     if !(1..r).contains(&s) {
         fail(input)
     } else {
-        Ok((o, PartialSymmOp::GenRotation(r, s)))
+        Ok((o, PartialSymmOp::GenRotation(r, frac!(s) / frac!(r))))
     }
 }
 
@@ -265,7 +270,7 @@ pub fn hm_reflection(input: &str) -> IResult<&str, PartialSymmOp> {
         value(PartialSymmOp::DGlide, tag("d")),
         value(PartialSymmOp::EGlide, tag("e")),
         value(PartialSymmOp::NGlide, tag("n")),
-        value(PartialSymmOp::GenRotation(-2, 0), tag("m")),
+        value(PartialSymmOp::GenRotation(-2, frac!(0)), tag("m")),
     ))(input)
 }
 

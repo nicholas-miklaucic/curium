@@ -1,9 +1,14 @@
 //! Module for Hall symbol notation and display. Implements the specification as described [at
 //! cci.lbl.gov](https://cci.lbl.gov/sginfo/hall_symbols.html).
 
-use std::{default, f32::MIN, str::FromStr};
+use std::{
+    default,
+    f32::{consts::FRAC_1_PI, MIN},
+    str::FromStr,
+};
 
 use nalgebra::{vector, Point3, Translation3, Vector, Vector3};
+use num_traits::Zero;
 use simba::scalar::SupersetOf;
 use thiserror::Error;
 
@@ -106,7 +111,7 @@ impl HallGroupSymbol {
             (HallCenteringType::P, 3, true, 1 | 2) => LatticeSystem::Rhombohedral,
             (HallCenteringType::R, 3, true, 1 | 2) => LatticeSystem::Hexagonal,
             (_, 6, _, _) => LatticeSystem::Hexagonal,
-            (_, 2 | 3 | 4, true, 3) => LatticeSystem::Cubic,
+            (_, 2 | 3 | 4, true, 3 | 4) => LatticeSystem::Cubic,
             (a, b, c, d) => {
                 dbg!(a, b, c, d);
                 panic!("Uh oh!")
@@ -132,16 +137,18 @@ impl HallGroupSymbol {
             ));
 
             linear_generators.iter_mut().for_each(|o| {
-                let iso = origin_shift.to_iso() * o.to_iso() * origin_shift_inv.to_iso();
+                let iso =
+                    origin_shift.to_iso(false) * o.to_iso(false) * origin_shift_inv.to_iso(false);
                 println!("{} {}", iso, iso.modulo_unit_cell());
                 *o = SymmOp::classify_affine(iso.modulo_unit_cell()).unwrap();
             });
         }
 
         for gen in &linear_generators {
-            println!("gen: {}\n{}", gen, gen.to_iso());
+            println!("gen: {}\n{}", gen, gen.to_iso(false));
         }
 
+        // dbg!(&linear_generators);
         SpaceGroupSetting::from_lattice_and_ops(lat_type, self.centering, linear_generators)
     }
 }
@@ -285,6 +292,13 @@ impl RotationGroup {
         directness: RotationDirectness,
         screw: ScrewOrder,
     ) -> Option<Self> {
+        let screw = screw * frac!(rot);
+        let screw = if screw.numerator % Frac::DENOM != 0 {
+            dbg!(screw, rot, directness);
+            return None;
+        } else {
+            screw.numerator / Frac::DENOM
+        };
         Some(match (rot, directness, screw) {
             (1, RotationDirectness::Proper, 0) => RotationGroup::R1,
             (1, RotationDirectness::Improper, 0) => RotationGroup::Rm1,
@@ -315,27 +329,27 @@ impl RotationGroup {
     /// Gets the rotation order, directness, and screw order of the rotation group.
     pub fn order_directness_screw(&self) -> (RotOrder, RotationDirectness, ScrewOrder) {
         match *self {
-            RotationGroup::R1 => (1, RotationDirectness::Proper, 0),
-            RotationGroup::Rm1 => (1, RotationDirectness::Improper, 0),
-            RotationGroup::R2 => (2, RotationDirectness::Proper, 0),
-            RotationGroup::Rm2 => (2, RotationDirectness::Improper, 0),
-            RotationGroup::R21 => (2, RotationDirectness::Proper, 1),
-            RotationGroup::R3 => (3, RotationDirectness::Proper, 0),
-            RotationGroup::Rm3 => (3, RotationDirectness::Improper, 0),
-            RotationGroup::R31 => (3, RotationDirectness::Proper, 1),
-            RotationGroup::R32 => (3, RotationDirectness::Proper, 2),
-            RotationGroup::R4 => (4, RotationDirectness::Proper, 0),
-            RotationGroup::Rm4 => (4, RotationDirectness::Improper, 0),
-            RotationGroup::R41 => (4, RotationDirectness::Proper, 1),
-            RotationGroup::R42 => (4, RotationDirectness::Proper, 2),
-            RotationGroup::R43 => (4, RotationDirectness::Proper, 3),
-            RotationGroup::R6 => (6, RotationDirectness::Proper, 0),
-            RotationGroup::Rm6 => (6, RotationDirectness::Improper, 0),
-            RotationGroup::R61 => (6, RotationDirectness::Proper, 1),
-            RotationGroup::R62 => (6, RotationDirectness::Proper, 2),
-            RotationGroup::R63 => (6, RotationDirectness::Proper, 3),
-            RotationGroup::R64 => (6, RotationDirectness::Proper, 4),
-            RotationGroup::R65 => (6, RotationDirectness::Proper, 5),
+            RotationGroup::R1 => (1, RotationDirectness::Proper, frac!(0)),
+            RotationGroup::Rm1 => (1, RotationDirectness::Improper, frac!(0)),
+            RotationGroup::R2 => (2, RotationDirectness::Proper, frac!(0)),
+            RotationGroup::Rm2 => (2, RotationDirectness::Improper, frac!(0)),
+            RotationGroup::R21 => (2, RotationDirectness::Proper, frac!(1 / 2)),
+            RotationGroup::R3 => (3, RotationDirectness::Proper, frac!(0)),
+            RotationGroup::Rm3 => (3, RotationDirectness::Improper, frac!(0)),
+            RotationGroup::R31 => (3, RotationDirectness::Proper, frac!(1 / 3)),
+            RotationGroup::R32 => (3, RotationDirectness::Proper, frac!(2 / 3)),
+            RotationGroup::R4 => (4, RotationDirectness::Proper, frac!(0)),
+            RotationGroup::Rm4 => (4, RotationDirectness::Improper, frac!(0)),
+            RotationGroup::R41 => (4, RotationDirectness::Proper, frac!(1 / 4)),
+            RotationGroup::R42 => (4, RotationDirectness::Proper, frac!(2 / 4)),
+            RotationGroup::R43 => (4, RotationDirectness::Proper, frac!(3 / 4)),
+            RotationGroup::R6 => (6, RotationDirectness::Proper, frac!(0)),
+            RotationGroup::Rm6 => (6, RotationDirectness::Improper, frac!(0)),
+            RotationGroup::R61 => (6, RotationDirectness::Proper, frac!(1 / 6)),
+            RotationGroup::R62 => (6, RotationDirectness::Proper, frac!(2 / 6)),
+            RotationGroup::R63 => (6, RotationDirectness::Proper, frac!(3 / 6)),
+            RotationGroup::R64 => (6, RotationDirectness::Proper, frac!(4 / 6)),
+            RotationGroup::R65 => (6, RotationDirectness::Proper, frac!(5 / 6)),
         }
     }
 }
@@ -372,7 +386,7 @@ impl HallOpSymbol {
         let (b1, b2) = dir.plane_basis();
         let (v1, v2) = (b1.as_vec3(), b2.as_vec3());
 
-        let screw_tau = dir.scaled_vec(frac!(screw.abs()) / frac!(ord.abs()));
+        let screw_tau = dir.scaled_vec(screw);
 
         let rot = match self.rotation {
             RotationGroup::R1 => SymmOp::Identity,
@@ -390,7 +404,7 @@ impl HallOpSymbol {
         };
 
         let tau_op = SymmOp::Translation(tau);
-        tau_op.compose(&rot).compose(&tau_op.inv())
+        tau_op.compose(&rot)
     }
 }
 
@@ -398,8 +412,10 @@ impl RenderBlocks for HallOpSymbol {
     fn components(&self) -> Vec<Block> {
         let (o, d, s) = self.rotation.order_directness_screw();
         let mut blocks = vec![Block::new_int((o * d.det_sign() as i8) as i64)];
-        if s != 0 {
-            blocks.push(Block::new_uint(s.rem_euclid(o) as u64));
+        if !s.is_zero() {
+            blocks.push(Block::new_uint(
+                s.numerator as u64 * self.order() as u64 / Frac::DENOM as u64,
+            ));
         }
 
         blocks.extend(self.axis.map(|x| x.components()).unwrap_or_default());
@@ -522,12 +538,14 @@ mod tests {
     #[test]
     fn test_hall_parse() {
         let cases = [
-            ("P 2 2 3", "P23"),
-            ("P 6", "P6"),
-            ("F 2 -2d", "Fdd2"),
-            ("I -4 -2", "I-4m2"),
-            // ("P 61 2 (0 0 -1)", "P6522"),
             // ("-I 4bd 2c 3", "Ia-3d"),
+            ("P 4n 2 3 -1n", "Pn-3m"),
+            // ("P 4nw 2abw", "P 43 21 2"),
+            ("P 61 2 (0 0 -1)", "P6_122"),
+            // ("P 2 2 3", "P23"),
+            // ("P 6", "P6"),
+            // ("F 2 -2d", "Fdd2"),
+            // ("I -4 -2", "I-4m2"),
         ];
 
         for (hall, hm) in cases {

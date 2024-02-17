@@ -78,15 +78,16 @@ impl Group<SymmOp> for SpaceGroupSetting {
     }
 
     fn compose(&self, a: &SymmOp, b: &SymmOp) -> SymmOp {
+        let is_hex = self.is_hex();
         // println!("{a} * {b} = ");
         // println!(
         //     " {} * {} = ",
-        //     ITA.render_to_string(&a.to_iso()),
-        //     ITA.render_to_string(&b.to_iso())
+        //     ITA.render_to_string(&a.to_iso(is_hex)),
+        //     ITA.render_to_string(&b.to_iso(is_hex))
         // );
         // println!(
-        //     "{}",
-        //     ITA.render_to_string(&(a.to_iso() * b.to_iso()).modulo_unit_cell())
+        //     "---------------\n {}\n-------------",
+        //     ITA.render_to_string(&(a.to_iso(is_hex) * b.to_iso(is_hex)).modulo_unit_cell())
         // );
 
         // We have to reduce the isometry modulo a unit cell *before* we convert to a SymmOp. The
@@ -94,8 +95,25 @@ impl Group<SymmOp> for SpaceGroupSetting {
         // operations, but we can represent all of the SymmOps we actually need. For example,
         // combining a rotation y, z, x with t(0, 0, 1) seems harmless, but the resulting axis is
         // quite weird.
-        let el = SymmOp::classify_affine((a.to_iso() * b.to_iso()).modulo_unit_cell()).unwrap();
+        let el_res =
+            SymmOp::classify_affine((a.to_iso(is_hex) * b.to_iso(is_hex)).modulo_unit_cell());
+        let el = if el_res.is_err() {
+            // println!("{a} * {b} = ");
+            // println!(
+            //     " {} * {} = ",
+            //     ITA.render_to_string(&a.to_iso(is_hex)),
+            //     ITA.render_to_string(&b.to_iso(is_hex))
+            // );
+            // println!(
+            //     "{}",
+            //     ITA.render_to_string(&(a.to_iso(is_hex) * b.to_iso(is_hex)).modulo_unit_cell())
+            // );
+            panic!();
+        } else {
+            el_res.unwrap()
+        };
         // println!("el: {el}");
+        assert_eq!(SymmOp::classify_affine(el.to_iso(is_hex)).unwrap(), el);
         self.residue(&el)
     }
 
@@ -162,14 +180,14 @@ impl RenderBlocks for PartialSymmOp {
             PartialSymmOp::EGlide => vec![E_GLIDE],
             PartialSymmOp::NGlide => vec![N_GLIDE],
             PartialSymmOp::DGlide => vec![D_GLIDE],
-            PartialSymmOp::GenRotation(-2, 0) => vec![MIRROR],
-            PartialSymmOp::GenRotation(r, 0) => {
+            PartialSymmOp::GenRotation(-2, f) if f.is_zero() => vec![MIRROR],
+            PartialSymmOp::GenRotation(r, f) if f.is_zero() => {
                 vec![Block::new_int(r as i64)]
             }
             PartialSymmOp::GenRotation(r, s) => {
                 vec![Block::Subscript(
                     Block::new_int(r as i64).into(),
-                    Block::new_uint(s.rem_euclid(r) as u64).into(),
+                    Block::Blocks((s * frac!(r)).components()).into(),
                 )]
             }
         }
@@ -180,22 +198,26 @@ impl PartialSymmOp {
     /// Converts from a `SymmOp`, returning a `PartialSymmOp` if it exists and `None` otherwise.
     pub fn try_from_op(op: &SymmOp) -> Option<PartialSymmOp> {
         match *op {
-            SymmOp::Identity => Some(PartialSymmOp::GenRotation(1, 0)),
+            SymmOp::Identity => Some(PartialSymmOp::GenRotation(1, frac!(0))),
             SymmOp::Inversion(tau) => {
                 if tau == Point3::origin() {
-                    Some(Self::GenRotation(-1, 0))
+                    Some(Self::GenRotation(-1, frac!(0)))
                 } else {
                     None
                 }
             }
             SymmOp::Translation(_) => None,
-            SymmOp::Rotation(rot) => Some(Self::GenRotation(rot.kind.order() as RotOrder, 0)),
-            SymmOp::Rotoinversion(rot) => Some(Self::GenRotation(-rot.kind.order() as RotOrder, 0)),
+            SymmOp::Rotation(rot) => {
+                Some(Self::GenRotation(rot.kind.order() as RotOrder, frac!(0)))
+            }
+            SymmOp::Rotoinversion(rot) => {
+                Some(Self::GenRotation(-rot.kind.order() as RotOrder, frac!(0)))
+            }
             SymmOp::Screw(rot, dir, tau) => Some(Self::GenRotation(
                 (rot.kind.order() as RotOrder) * dir.det_sign() as RotOrder,
-                tau.rem_euclid(rot.kind.order() as ScrewOrder),
+                tau,
             )),
-            SymmOp::Reflection(_pl) => Some(Self::GenRotation(-2, 0)),
+            SymmOp::Reflection(_pl) => Some(Self::GenRotation(-2, frac!(0))),
             SymmOp::Glide(pl, tau) => {
                 // table 2.1.2.1
                 let [a, b, c] = *tau.as_slice() else {
@@ -236,7 +258,7 @@ impl PartialSymmOp {
 
     pub fn is_reflection(&self) -> bool {
         match *self {
-            PartialSymmOp::GenRotation(-2, 0) => true,
+            PartialSymmOp::GenRotation(-2, f) if f.is_zero() => true,
             PartialSymmOp::GenRotation(_, _) => false,
             _ => true,
         }
@@ -254,14 +276,14 @@ impl PartialSymmOp {
             PartialSymmOp::EGlide => 15,
             PartialSymmOp::NGlide => 5,
             PartialSymmOp::DGlide => 10, // not specified?
-            PartialSymmOp::GenRotation(-2, 0) => 20,
-            PartialSymmOp::GenRotation(1, 0) => 1,
-            PartialSymmOp::GenRotation(-1, 0) => -1,
+            PartialSymmOp::GenRotation(-2, f) if f.is_zero() => 20,
+            PartialSymmOp::GenRotation(1, f) if f.is_zero() => 1,
+            PartialSymmOp::GenRotation(-1, f) if f.is_zero() => -1,
             PartialSymmOp::GenRotation(r, s) => {
                 if r > 0 {
-                    r * 10 - s
+                    r * 10 - s.numerator as i8
                 } else {
-                    -r * 10 - s - 10
+                    -r * 10 - s.numerator as i8 - 10
                 }
             }
         }
@@ -293,11 +315,11 @@ impl PartialSymmOp {
     /// Converts to a full `SymmOp` using the given symmetry direction.
     pub fn to_symmop_with_dir(&self, dir: Direction) -> SymmOp {
         match *self {
-            Self::GenRotation(1, 0) => SymmOp::Identity,
-            Self::GenRotation(-1, 0) => SymmOp::Inversion(Point3::origin()),
-            Self::GenRotation(r, s) if (r, s) != (-2, 0) => {
+            Self::GenRotation(1, f) if f.is_zero() => SymmOp::Identity,
+            Self::GenRotation(-1, f) if f.is_zero() => SymmOp::Inversion(Point3::origin()),
+            Self::GenRotation(r, s) if (r, s) != (-2, frac!(0)) => {
                 let axis = RotationAxis::new(dir.as_vec3(), Point3::origin());
-                let tau = axis.dir.scaled_vec(frac!(s.abs()) / frac!(r.abs()));
+                let tau = axis.dir.scaled_vec(s);
                 // dbg!(tau);
                 let kind = RotationKind::new(true, r.abs() as usize);
                 SymmOp::new_generalized_rotation(axis, kind, r.is_positive(), tau)
@@ -345,7 +367,7 @@ impl PartialSymmOp {
                     PartialSymmOp::EGlide => v1.scale(f12),
                     PartialSymmOp::NGlide => (v1 + v2).scale(f12),
                     PartialSymmOp::DGlide => (v1 + v2).scale(f14),
-                    PartialSymmOp::GenRotation(-2, 0) => Vector3::zero(),
+                    PartialSymmOp::GenRotation(-2, f) if f.is_zero() => Vector3::zero(),
                     _ => unreachable!(),
                 };
 
@@ -418,7 +440,7 @@ impl FullHMSymbolUnit {
     pub fn first_op(&self) -> PartialSymmOp {
         self.rotation
             .or(self.reflection)
-            .unwrap_or(PartialSymmOp::GenRotation(1, 0))
+            .unwrap_or(PartialSymmOp::GenRotation(1, frac!(0)))
     }
 
     /// Gets the symmetry operations.
@@ -443,7 +465,7 @@ impl FullHMSymbolUnit {
 
     pub const M: FullHMSymbolUnit = FullHMSymbolUnit {
         rotation: None,
-        reflection: Some(PartialSymmOp::GenRotation(-2, 0)),
+        reflection: Some(PartialSymmOp::GenRotation(-2, frac!(0))),
     };
 }
 
@@ -482,13 +504,17 @@ impl SpaceGroupSetting {
         setting
     }
 
+    pub fn is_hex(&self) -> bool {
+        self.lattice_type == LatticeSystem::Hexagonal
+    }
+
     pub fn op_list(&self) -> Vec<Block> {
         self.symmops
             .iter()
             .enumerate()
             .flat_map(|(i, op)| {
                 let mut blocks = vec![Block::new_uint((i + 1) as u64), Block::new_text(": ")];
-                blocks.append(&mut op.to_iso().modulo_unit_cell().components());
+                blocks.append(&mut op.to_iso(self.is_hex()).modulo_unit_cell().components());
                 blocks.push(Block::new_text("\n"));
                 blocks
             })
@@ -522,7 +548,7 @@ impl SpaceGroupSetting {
         if syms.len() == 1 && syms[0].first_op().rot_kind() == 1 {
             if self.symmops.len() > 1 {
                 // not P1, so must be P-1
-                syms[0].rotation = Some(PartialSymmOp::GenRotation(-1, 0));
+                syms[0].rotation = Some(PartialSymmOp::GenRotation(-1, frac!(0)));
             }
         };
         (self.centering, syms)
@@ -622,7 +648,7 @@ mod tests {
                 return Ok(());
             }
 
-            let partial = PartialSymmOp::GenRotation(r, s);
+            let partial = PartialSymmOp::GenRotation(r, frac!(s) / frac!(r));
             for ax in [Direction::new(Vector3::x()), Direction::new(Vector3::y()), Direction::new(Vector3::z())] {
                 let op = partial.to_symmop_with_dir(ax);
                 // assert_eq!(op.symmetry_direction(), Some(ax));
@@ -691,8 +717,8 @@ mod tests {
             ],
         );
         // for op in pbcm.clone().symmops {
-        //     println!("{:?}", op.to_iso());
-        //     println!("{:?}", op.to_iso().modulo_unit_cell());
+        //     println!("{:?}", op.to_iso(false));
+        //     println!("{:?}", op.to_iso(false).modulo_unit_cell());
         // }
 
         assert_str_eq!(
@@ -724,7 +750,7 @@ mod tests {
         for op in pbcm.symmops {
             println!(
                 "{}\n{}\n{}\n{:?}",
-                DISPLAY.render_to_string(&op.to_iso()),
+                DISPLAY.render_to_string(&op.to_iso(false)),
                 op.rotation_component().map_or_else(
                     || op
                         .translation_component()

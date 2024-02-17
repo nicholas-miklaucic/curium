@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_dimino() {
-        let grp = HallGroupSymbol::from_str("F 2 -2d").unwrap();
+        let grp = HallGroupSymbol::from_str("P 4n 2 3 -1n").unwrap();
         let sg = grp.generate_group();
 
         let s1 = generate_elements(&sg);
@@ -233,28 +233,28 @@ mod tests {
 
         let ops1: Vec<String> = s1
             .iter()
-            .map(|x| ITA.render_to_string(&x.to_iso()))
+            .map(|x| ITA.render_to_string(&x.to_iso(false)))
             .collect();
         let ops2: Vec<String> = s2
             .iter()
-            .map(|x| ITA.render_to_string(&x.to_iso()))
+            .map(|x| ITA.render_to_string(&x.to_iso(false)))
             .collect();
 
         println!("{}\n---\n{}", ops1.join("\n "), ops2.join("\n "));
         for s in &s1 {
-            assert_eq!(&SymmOp::classify_affine(s.to_iso()).unwrap(), s);
+            assert_eq!(&SymmOp::classify_affine(s.to_iso(false)).unwrap(), s);
             assert!(
                 sg.contains_equiv(&s2, s),
                 "{}",
-                ITA.render_to_string(&s.to_iso())
+                ITA.render_to_string(&s.to_iso(false))
             );
         }
         for s in &s2 {
-            assert_eq!(&SymmOp::classify_affine(s.to_iso()).unwrap(), s);
+            assert_eq!(&SymmOp::classify_affine(s.to_iso(false)).unwrap(), s);
             assert!(
                 sg.contains_equiv(&s1, s),
                 " {}",
-                ITA.render_to_string(&s.to_iso())
+                ITA.render_to_string(&s.to_iso(false))
             );
         }
 
