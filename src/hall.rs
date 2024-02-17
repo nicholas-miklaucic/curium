@@ -538,8 +538,8 @@ mod tests {
     #[test]
     fn test_hall_parse() {
         let cases = [
-            // ("-I 4bd 2c 3", "Ia-3d"),
-            ("P 4n 2 3 -1n", "Pn-3m"),
+            ("-I 4bd 2c 3", "Ia-3d"),
+            // ("P 4n 2 3 -1n", "Pn-3m"),
             // ("P 4nw 2abw", "P 43 21 2"),
             ("P 61 2 (0 0 -1)", "P6_122"),
             // ("P 2 2 3", "P23"),

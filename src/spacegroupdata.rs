@@ -10,7 +10,9 @@ use nalgebra::{Point3, Vector3};
 use num_traits::Zero;
 
 use crate::{
-    algebra::{generate_elements, FiniteGroup, FinitelyGeneratedGroup, Group},
+    algebra::{
+        generate_elements, generate_elements_dimino, FiniteGroup, FinitelyGeneratedGroup, Group,
+    },
     frac,
     fract::Frac,
     group_classes::CrystalSystem,
@@ -500,7 +502,7 @@ impl SpaceGroupSetting {
             symmops: vec![],
         };
 
-        setting.symmops = generate_elements(&setting);
+        setting.symmops = generate_elements_dimino(&setting);
         setting
     }
 
