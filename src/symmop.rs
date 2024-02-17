@@ -8,8 +8,8 @@ use std::iter::successors;
 use std::ops::Mul;
 
 use nalgebra::{
-    matrix, ComplexField, Const, Matrix3, Matrix4, OMatrix, Point3, SMatrix, Translation3, Unit,
-    Vector3,
+    matrix, ComplexField, Const, Matrix3, Matrix4, OMatrix, Point, Point3, SMatrix, Translation3,
+    Unit, Vector3,
 };
 use num_traits::{FromPrimitive, Signed, Zero};
 use simba::scalar::SupersetOf;
@@ -349,6 +349,8 @@ pub struct Plane {
     n: Direction,
     /// The scale such that nd is on the plane.
     d: Frac,
+    /// The origin.
+    ori: Point3<Frac>,
 }
 
 impl Plane {
@@ -361,8 +363,13 @@ impl Plane {
     ) -> Self {
         let normal = v1.cross(&v2);
         let n = Direction::new(normal);
-        let dist = normal.dot(&origin.coords);
-        Self { n, d: dist }
+        // println!("{} {}", n, origin);
+        let dist = n.as_vec3().dot(&origin.coords);
+        Self {
+            n,
+            d: dist,
+            ori: origin,
+        }
     }
 
     pub fn reflection_matrix(&self) -> Matrix4<f64> {
@@ -392,6 +399,7 @@ impl Plane {
         Self {
             n: self.n.inv(),
             d: -self.d,
+            ori: self.ori,
         }
     }
 
@@ -400,6 +408,7 @@ impl Plane {
         Plane {
             n: self.n,
             d: std::cmp::max(self.d.modulo_one(), -(self.d.modulo_one())),
+            ori: self.ori.map(|f| f.modulo_one()),
         }
     }
 
@@ -411,7 +420,7 @@ impl Plane {
 
     /// Gets a point on the plane.
     pub fn origin(&self) -> Vector3<Frac> {
-        self.n.scaled_vec(self.d)
+        self.ori.coords
     }
 }
 
@@ -470,7 +479,7 @@ impl SimpleRotation {
         let f1 = frac!(1);
         let fm1 = frac!(-1);
 
-        dbg!((v1, v2, v3, self.kind.order()));
+        // dbg!((v1, v2, v3, self.kind.order()));
         let m = match (v1, v2, v3, self.kind.order()) {
             // https://cci.lbl.gov/sginfo/hall_symbols.html
             (_, _, _, 1) => Matrix3::identity(),
@@ -639,14 +648,14 @@ impl SimpleRotation {
         let m = if do_inv {
             let mut v = origin.coords.to_homogeneous();
             v[(3, 0)] = f1;
-            println!(
-                "--{}\n{}\n{}\n{}\n{}",
-                v,
-                shift_inv * v,
-                m * shift_inv * v,
-                inv_mat * m * shift_inv * v,
-                shift * inv_mat * m * shift_inv * v
-            );
+            // println!(
+            //     "--{}\n{}\n{}\n{}\n{}",
+            //     v,
+            //     shift_inv * v,
+            //     m * shift_inv * v,
+            //     inv_mat * m * shift_inv * v,
+            //     shift * inv_mat * m * shift_inv * v
+            // );
             shift * inv_mat * m * shift_inv
         } else {
             shift * m * shift_inv
@@ -1423,12 +1432,13 @@ impl SymmOp {
             // the location part of the translation, which isn't a screw or a glide
             let w_l = w - w_g;
 
-            println!("Y(±W): {}", Y);
-            println!("Y(W): {}", YW);
-            println!("w: {}", w);
-            println!("t: {}", t);
-            println!("w_l: {}", w_l);
-            println!("w_g: {}", w_g);
+            // println!("W: {}", W);
+            // println!("Y(±W): {}", Y);
+            // println!("Y(W): {}", YW);
+            // println!("w: {}", w);
+            // println!("t: {}", t);
+            // println!("w_l: {}", w_l);
+            // println!("w_g: {}", w_g);
 
             // (b) Fixed points
 
@@ -1454,10 +1464,9 @@ impl SymmOp {
                 I.column(2),
                 (w_l.scale(frac!(-1))).column(0),
             ]);
-            println!("aug: {}", aug);
+            // println!("aug: {}", aug);
             let mut aug = aug.clone_owned();
             gauss_eliminate(&mut aug);
-            println!("aug eliminated: {}", aug);
 
             // aug is now in its reduced form. If the first three entries in a row are 0, then we
             // check that the last entry is 0 (otherwise our system is unsolvable!), then we read
@@ -1465,21 +1474,43 @@ impl SymmOp {
             // solve for that row of the result by dividing out by the nonzero element.
             let mut kernel_basis = vec![];
             let mut center = Point3::origin();
+            let mut do_cross = false;
+            let mut sol = Vector3::zero();
+
             for row in 0..3 {
-                if aug.fixed_view::<1, 3>(row, 0) == Vector3::zero().transpose() {
-                    // part of kernel
-                    // if this fails, the system has no solutions and we goofed
-                    assert!(aug[(row, 6)].is_zero());
-                    // add basis vector to kernel basis
-                    kernel_basis.push(aug.fixed_view::<3, 1>(row, 3).transpose());
-                } else {
+                if aug.fixed_view::<1, 3>(row, 0) != Vector3::zero().transpose() {
                     // part of solution
                     let mut sol_dim = 0;
                     while aug[(row, sol_dim)].is_zero() {
                         sol_dim += 1;
                     }
                     center[sol_dim] = aug[(row, 6)] / aug[(row, sol_dim)];
+                    if !aug[(row, sol_dim + 1)].is_zero() && sol_dim < 2 {
+                        // dbg!(row, sol_dim + 1);
+                        // center[sol_dim + 1] = aug[(row, 6)] / aug[(row, sol_dim)];
+                        sol = aug.fixed_view::<1, 3>(row, 0).clone_owned().transpose();
+                    }
+                } else {
+                    if aug
+                        .fixed_view::<1, 3>(row, 3)
+                        .transpose()
+                        .dot(&sol)
+                        .is_zero()
+                    {
+                        // part of kernel
+                        // if this fails, the system has no solutions and we goofed
+                        assert!(aug[(row, 6)].is_zero());
+                        // add basis vector to kernel basis
+                        kernel_basis.push(aug.fixed_view::<1, 3>(row, 3).transpose());
+                    } else if !sol.is_zero() {
+                        do_cross = true;
+                    }
                 }
+            }
+
+            if do_cross {
+                // dbg!(&sol, &kernel_basis, kernel_basis[0].cross(&sol));
+                kernel_basis.push(kernel_basis[0].cross(&sol));
             }
 
             // We already covered the cases where the kernel has dimension 3: identity and
@@ -1487,8 +1518,8 @@ impl SymmOp {
 
             // dbg!(axis);
 
-            dbg!(&center);
-            dbg!(&kernel_basis);
+            // dbg!(&center);
+            // dbg!(&kernel_basis);
             match kernel_basis[..] {
                 [] => {
                     // single solution: rotoinversion center
@@ -1760,7 +1791,7 @@ mod tests {
         let ans = SymmOp::new_generalized_rotation(
             RotationAxis::new(
                 Vector3::new(frac!(1), frac!(-1), frac!(0)),
-                Point3::new(frac!(0), frac!(0), frac!(-5 / 12)),
+                Point3::new(frac!(0), frac!(0), frac!(5 / 12)),
             ),
             RotationKind::Two,
             true,
@@ -1982,7 +2013,7 @@ mod tests {
                 Plane::from_basis_and_origin(
                     vector![frac!(0), frac!(0), frac!(1)],
                     vector![frac!(1), frac!(1), frac!(0)],
-                    Point3::new(frac!(5 / 4), frac!(0), frac!(0)),
+                    Point3::new(frac!(1), frac!(0), frac!(0)),
                 ),
                 vector![frac!(1 / 4), frac!(1 / 4), frac!(0)],
             ),

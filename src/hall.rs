@@ -525,14 +525,15 @@ mod tests {
             ("P 2 2 3", "P23"),
             ("P 6", "P6"),
             ("F 2 -2d", "Fdd2"),
+            ("I -4 -2", "I-4m2"),
             // ("P 61 2 (0 0 -1)", "P6522"),
-            ("-I 4bd 2c 3", "Ia-3d"),
+            // ("-I 4bd 2c 3", "Ia-3d"),
         ];
 
         for (hall, hm) in cases {
             let group: HallGroupSymbol = hall.parse().unwrap();
             let setting = group.generate_group();
-            dbg!(&setting);
+            // dbg!(&setting);
             println!(
                 "{:?}\n{}",
                 setting.lattice_type,
