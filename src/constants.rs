@@ -549,9 +549,9 @@ pub const HALL_SYMBOLS: [(&str, usize); 523] = [
 
 /// The short Hermann-Mauguin symbols in order, represented using ASCII, no underscores for screws,
 /// and with hexagonal axes for the rhombohedral groups.
-pub const SPACE_GROUP_SYMBOLS: [&str; 230] = [
-    "P1", "P-1", "P2", "P21", "C2", "Pm", "Pc", "Cm", "Cc", "P2/m", "P21/m", "C2/m", "P2/c",
-    "P21/c", "C2/c", "P222", "P2221", "P21212", "P212121", "C2221", "C222", "F222", "I222",
+pub const SPACE_GROUP_SYMBOLS: [&str; 231] = [
+    "!!NUL!!", "P1", "P-1", "P2", "P21", "C2", "Pm", "Pc", "Cm", "Cc", "P2/m", "P21/m", "C2/m",
+    "P2/c", "P21/c", "C2/c", "P222", "P2221", "P21212", "P212121", "C2221", "C222", "F222", "I222",
     "I212121", "Pmm2", "Pmc21", "Pcc2", "Pma2", "Pca21", "Pnc2", "Pmn21", "Pba2", "Pna21", "Pnn2",
     "Cmm2", "Cmc21", "Ccc2", "Amm2", "Aem2", "Ama2", "Aea2", "Fmm2", "Fdd2", "Imm2", "Iba2",
     "Ima2", "Pmmm", "Pnnn", "Pccm", "Pban", "Pmma", "Pnna", "Pmna", "Pcca", "Pbam", "Pccn", "Pbcm",

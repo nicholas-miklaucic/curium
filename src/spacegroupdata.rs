@@ -14,13 +14,14 @@ use crate::{
     constants::HALL_SYMBOLS,
     frac,
     fract::Frac,
+    geometry::{Direction, Plane, RotationAxis},
     group_classes::CrystalSystem,
     hall::{HallCenteringType, HallGroupSymbol},
     hermann_mauguin::{FullHMSymbolUnit, PartialSymmOp},
     lattice::{CenteringType, LatticeSystem},
     markup::{Block, RenderBlocks, ITA},
     symbols::{A_GLIDE, B_GLIDE, C_GLIDE, D_GLIDE, E_GLIDE, MIRROR, N_GLIDE},
-    symmop::{Direction, Plane, RotationAxis, RotationKind, ScrewOrder, SymmOp},
+    symmop::{RotationKind, ScrewOrder, SymmOp},
 };
 
 /// A space group with a specific choice of symmetry directions. Essentially corresponds to a full
@@ -414,17 +415,16 @@ mod tests {
 
         for op in pbcm.symmops {
             println!(
-                "{}\n{}\n{}\n{:?}",
+                "{}\n{}\n{}",
                 DISPLAY.render_to_string(&op.to_iso(false)),
                 op.rotation_component().map_or_else(
                     || op
                         .translation_component()
                         .map(|t| format!("{:?}", t))
                         .unwrap_or("None".into()),
-                    |t| format!("{:?} {:?}", t.axis.dir, t.kind)
+                    |t| format!("{:?} {:?}", t.axis.dir(), t.kind)
                 ),
                 op.translation_component().unwrap_or(Vector3::zeros()),
-                op.symmetry_direction().map(|d| d.v)
             );
             println!("\n---------------------------------------------\n");
         }

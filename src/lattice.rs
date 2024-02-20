@@ -13,10 +13,11 @@ use std::{
 use crate::{
     algebra::GroupElement,
     frac,
+    geometry::Direction,
     group_classes::CrystalFamily,
     isometry::Isometry,
     markup::{Block, RenderBlocks},
-    symmop::{Direction, SymmOp},
+    symmop::SymmOp,
     units::{angstrom, degree, radian, Angle, Length, Volume},
 };
 use nalgebra::{Matrix3, Matrix3x1, Matrix4, Vector3};

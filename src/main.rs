@@ -6,7 +6,7 @@ use curium::{
 };
 
 fn main() {
-    coz::scope!("main");
+    // coz::scope!("main");
     for (hall, grp_num) in HALL_SYMBOLS {
         let group: HallGroupSymbol = hall.parse().unwrap();
         let setting = group.generate_group();

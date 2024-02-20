@@ -3,8 +3,9 @@
 use nalgebra::{Point3, Vector3};
 use num_traits::Zero;
 
+use crate::geometry::{Direction, Plane, RotationAxis};
 use crate::symbols::*;
-use crate::symmop::{Direction, Plane, RotationAxis, RotationKind, SymmOp};
+use crate::symmop::{RotationKind, SymmOp};
 use crate::{
     frac,
     markup::{Block, RenderBlocks},
@@ -183,7 +184,7 @@ impl PartialSymmOp {
             Self::GenRotation(-1, f) if f.is_zero() => SymmOp::Inversion(Point3::origin()),
             Self::GenRotation(r, s) if (r, s) != (-2, frac!(0)) => {
                 let axis = RotationAxis::new(dir.as_vec3(), Point3::origin());
-                let tau = axis.dir.scaled_vec(s);
+                let tau = axis.dir().scaled_vec(s);
                 // dbg!(tau);
                 let kind = RotationKind::new(true, r.unsigned_abs() as usize);
                 SymmOp::new_generalized_rotation(axis, kind, r.is_positive(), tau)

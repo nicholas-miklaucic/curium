@@ -15,15 +15,14 @@ use thiserror::Error;
 use crate::{
     frac,
     fract::Frac,
+    geometry::{Direction, Plane, RotationAxis},
     hermann_mauguin::RotOrder,
     lattice::LatticeSystem,
     markup::{Block, RenderBlocks},
     parsing::{hall_axis_symbol, hall_group},
     spacegroupdata::SpaceGroupSetting,
     symbols::{LPAREN, MINUS_SIGN, RPAREN, SPACE},
-    symmop::{
-        Direction, Plane, RotationAxis, RotationDirectness, RotationKind, ScrewOrder, SymmOp,
-    },
+    symmop::{RotationDirectness, RotationKind, ScrewOrder, SymmOp},
 };
 
 /// A Hall symbol description of a space group.
@@ -536,7 +535,7 @@ impl RenderBlocks for HallTranslationSymbol {
 #[cfg(test)]
 mod tests {
     use crate::{
-        constants::{GROUP_ORDERS, HALL_SYMBOLS},
+        constants::{GROUP_ORDERS, HALL_SYMBOLS, SPACE_GROUP_SYMBOLS},
         markup::{ASCII, ITA},
     };
 
@@ -546,6 +545,7 @@ mod tests {
     #[test]
     fn test_hall_orders() {
         for (hall, grp_num) in HALL_SYMBOLS {
+            println!("{}", SPACE_GROUP_SYMBOLS[grp_num]);
             let group: HallGroupSymbol = hall.parse().unwrap();
             let setting = group.generate_group();
             // dbg!(&setting);
