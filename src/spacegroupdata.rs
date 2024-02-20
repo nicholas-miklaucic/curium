@@ -4,14 +4,14 @@
 //! generic [`SpaceGroup`], a simple 230-element enum, is all that is needed to describe a space
 //! group for serialization.
 
-use std::str::FromStr;
+use std::{fmt::Display, str::FromStr};
 
-use nalgebra::{Point3, Vector3};
+use nalgebra::{Point3, Translation3, Vector3};
 use num_traits::Zero;
 
 use crate::{
     algebra::{generate_elements, FiniteGroup, FinitelyGeneratedGroup, Group},
-    constants::HALL_SYMBOLS,
+    constants::{HALL_SYMBOLS, SPACE_GROUP_SYMBOLS},
     frac,
     fract::Frac,
     geometry::{Direction, Plane, RotationAxis},
@@ -20,7 +20,7 @@ use crate::{
     hermann_mauguin::{FullHMSymbolUnit, PartialSymmOp},
     lattice::{CenteringType, LatticeSystem},
     markup::{Block, RenderBlocks, ITA},
-    symbols::{A_GLIDE, B_GLIDE, C_GLIDE, D_GLIDE, E_GLIDE, MIRROR, N_GLIDE},
+    symbols::{A_GLIDE, B_GLIDE, C_GLIDE, D_GLIDE, E_GLIDE, LPAREN, MIRROR, N_GLIDE, RPAREN},
     symmop::{RotationKind, ScrewOrder, SymmOp},
 };
 
@@ -107,10 +107,12 @@ impl FinitelyGeneratedGroup<SymmOp> for SpaceGroupSetting {
     type Generators = Vec<SymmOp>;
 
     fn generators(&self) -> Self::Generators {
-        let all_translation = self.centering.centering_ops();
-        let (gens, centerings) = all_translation.split_at(3);
-        let mut gens = gens.to_vec();
+        let centerings = self.centering.centering_ops();
+        let mut gens = vec![];
         gens.extend(self.linear_generators.clone());
+        gens.push(SymmOp::Translation(Vector3::x()));
+        gens.push(SymmOp::Translation(Vector3::y()));
+        gens.push(SymmOp::Translation(Vector3::z()));
         gens.extend(centerings);
         gens
     }
@@ -125,6 +127,16 @@ impl FiniteGroup<SymmOp> for SpaceGroupSetting {
 }
 
 impl SpaceGroupSetting {
+    pub fn from_hm_symbol_lookup(symbol: &str) -> Self {
+        let sym = symbol.replace(" ", "").replace("_", "");
+        Self::from_number(
+            SPACE_GROUP_SYMBOLS
+                .into_iter()
+                .position(|s| s == sym)
+                .unwrap(),
+        )
+    }
+
     /// Gets all of the `SymmOp`s, including the centering translations.
     pub fn all_symmops(&self) -> Vec<SymmOp> {
         let mut ops = self.symmops.clone();
@@ -136,6 +148,30 @@ impl SpaceGroupSetting {
             }
         }
         ops
+    }
+
+    /// Whether the group has a symmop matching the given one.
+    pub fn contains_op(&self, op: &SymmOp) -> bool {
+        self.contains_equiv(&self.all_symmops(), op)
+    }
+
+    /// Gets the translation vector that corresponds to this SymmOp.
+    pub fn centering_component(&self, op: &SymmOp) -> Option<Vector3<Frac>> {
+        let mut centers = self.centering.centering_ops();
+        centers.push(SymmOp::Translation(Vector3::zeros()));
+
+        centers
+            .into_iter()
+            .find(|c| self.contains_op(&c.inv().compose(op)))
+            .map(|t| t.translation_component().unwrap())
+    }
+
+    /// Gets just the `SymmOps` without the centering translation.
+    pub fn uncentered_symmops(&self) -> Vec<SymmOp> {
+        self.all_symmops()
+            .into_iter()
+            .filter(|op| self.centering_component(op).is_some_and(|v| v.is_zero()))
+            .collect()
     }
 
     /// Gets the space group corresponding to the number given. Panics if the
@@ -175,14 +211,44 @@ impl SpaceGroupSetting {
         self.lattice_type == LatticeSystem::Hexagonal
     }
 
-    /// Formats a list of all of the ops.
+    /// Formats a list of all of the ops, giving both the Jones notation and the geometric meaning.
     pub fn op_list(&self) -> Vec<Block> {
         self.symmops
             .iter()
             .enumerate()
             .flat_map(|(i, op)| {
                 let mut blocks = vec![Block::new_uint((i + 1) as u64), Block::new_text(": ")];
+                blocks.extend(op.to_iso(self.is_hex()).modulo_unit_cell().components());
+                blocks.push(Block::new_text("\t|\t"));
+                blocks.extend(op.components());
+                blocks.push(Block::new_text("\n"));
+                blocks
+            })
+            .collect()
+    }
+
+    /// Formats a list of all of the ops, in Jones faithful notation.
+    pub fn op_list_jones(&self) -> Vec<Block> {
+        self.symmops
+            .iter()
+            .enumerate()
+            .flat_map(|(i, op)| {
+                let mut blocks = vec![Block::new_uint((i + 1) as u64), Block::new_text(": ")];
                 blocks.append(&mut op.to_iso(self.is_hex()).modulo_unit_cell().components());
+                blocks.push(Block::new_text("\n"));
+                blocks
+            })
+            .collect()
+    }
+
+    /// Formats a list of all of the ops as their geometric meaning.
+    pub fn op_list_geometric(&self) -> Vec<Block> {
+        self.symmops
+            .iter()
+            .enumerate()
+            .flat_map(|(i, op)| {
+                let mut blocks = vec![LPAREN, Block::new_uint((i + 1) as u64), RPAREN];
+                blocks.extend(op.components());
                 blocks.push(Block::new_text("\n"));
                 blocks
             })
@@ -197,7 +263,7 @@ impl SpaceGroupSetting {
             syms.push(FullHMSymbolUnit::default());
         }
 
-        for op in self.symmops.clone() {
+        for op in self.uncentered_symmops() {
             let dir1 = op.symmetry_direction();
             let partial_op = PartialSymmOp::try_from_op(&op);
             for (i, dirlist) in dirs.iter().enumerate() {
@@ -275,9 +341,15 @@ impl RenderBlocks for SpaceGroupSetting {
     }
 }
 
+impl Display for SpaceGroupSetting {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", ITA.render_to_string(&self.op_list()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::{collections::HashMap, str::FromStr};
 
     use nalgebra::Vector3;
     use pretty_assertions::{assert_eq, assert_str_eq};
@@ -291,6 +363,23 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn test_centering_ops() {
+        for grp_sym in ["I4_1/acd"] {
+            let mut counts: HashMap<Vector3<Frac>, usize> = HashMap::new();
+            let group = SpaceGroupSetting::from_hm_symbol_lookup(grp_sym);
+            for op in group.all_symmops() {
+                let comp = group
+                    .centering_component(&op)
+                    .unwrap_or_else(|| panic!("{op} {group}"));
+                *counts.entry(comp).or_default() += 1;
+            }
+
+            println!("{counts:?}");
+            assert_eq!(counts.values().max(), counts.values().min());
+        }
+    }
 
     proptest! {
         #[test]

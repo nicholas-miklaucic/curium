@@ -140,12 +140,12 @@ impl HallGroupSymbol {
             linear_generators.iter_mut().for_each(|o| {
                 let iso =
                     origin_shift.to_iso(false) * o.to_iso(false) * origin_shift_inv.to_iso(false);
-                println!("{} {}", iso, iso.modulo_unit_cell());
+                // println!("{} {}", iso, iso.modulo_unit_cell());
                 *o = SymmOp::classify_affine(iso.modulo_unit_cell()).unwrap();
             });
         }
 
-        println!("{lat_type:?} {:?}", self.centering);
+        // println!("{lat_type:?} {:?}", self.centering);
         // for gen in &linear_generators {
         //     println!("gen: {}\n{}", gen, gen.to_iso(false));
         // }
@@ -222,8 +222,8 @@ impl HallCenteringType {
     /// define the centering options. Includes the three basis vectors that shift by entire unit
     /// cells.
     pub fn centering_ops(&self) -> Vec<SymmOp> {
-        let mut translations = vec![Vector3::x(), Vector3::y(), Vector3::z()];
-        // let mut translations = vec![];
+        // let mut translations = vec![Vector3::x(), Vector3::y(), Vector3::z()];
+        let mut translations = vec![];
 
         let f0 = frac!(0);
         let f12 = frac!(1 / 2);
@@ -541,7 +541,6 @@ mod tests {
 
     use super::*;
 
-    //     #[ignore] // this takes ~4 minutes on my machine!
     #[test]
     fn test_hall_orders() {
         for (hall, grp_num) in HALL_SYMBOLS {
@@ -572,11 +571,11 @@ mod tests {
     fn test_hall_parse() {
         let cases = [
             // ("-I 4bd 2c 3", "Ia-3d"),
-            // ("I 4bw 2aw -1bw", "I4_1/acd"),
+            ("I 4bw 2aw -1bw", "I4_1/acd"),
             // ("P 4n 2 3 -1n", "Pn-3m"),
             // ("P 4nw 2abw", "P 43 21 2"),
-            ("P 61 2 (0 0 -1)", "P6_122"),
-            ("P 2 2 3", "P23"),
+            // ("P 61 2 (0 0 -1)", "P6_122"),
+            // ("P 2 2 3", "P23"),
             // ("P 6", "P6"),
             // ("F 2 -2d", "Fdd2"),
             // ("I -4 -2", "I-4m2"),
