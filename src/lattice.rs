@@ -559,14 +559,14 @@ mod tests {
                 a + b - 360.,
                 a - b,
                 b - a,
-            ].into_iter().reduce(|acc, b| f64::max(acc, b)).unwrap();
+            ].into_iter().reduce(f64::max).unwrap();
 
             let ub = vec![
                 360. - (a + b),
                 a + b,
                 360. - a + b,
                 360. + a - b,
-            ].into_iter().reduce(|acc, b| f64::min(acc, b)).unwrap();
+            ].into_iter().reduce(f64::min).unwrap();
 
             // println!("{lb} <= y <= {ub}");
             let y = lb + (gamma_coef / 100.) * (ub - lb);

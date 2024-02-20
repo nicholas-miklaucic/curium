@@ -11,6 +11,7 @@ pub mod element;
 pub mod fract;
 pub mod group_classes;
 pub mod hall;
+pub mod hermann_mauguin;
 pub mod isometry;
 pub mod lattice;
 pub mod markup;

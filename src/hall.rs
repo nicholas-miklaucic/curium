@@ -15,10 +15,11 @@ use thiserror::Error;
 use crate::{
     frac,
     fract::Frac,
+    hermann_mauguin::RotOrder,
     lattice::LatticeSystem,
     markup::{Block, RenderBlocks},
     parsing::{hall_axis_symbol, hall_group},
-    spacegroupdata::{RotOrder, SpaceGroupSetting},
+    spacegroupdata::SpaceGroupSetting,
     symbols::{LPAREN, MINUS_SIGN, RPAREN, SPACE},
     symmop::{
         Direction, Plane, RotationAxis, RotationDirectness, RotationKind, ScrewOrder, SymmOp,
@@ -112,7 +113,7 @@ impl HallGroupSymbol {
             (HallCenteringType::P, 3, true, 1 | 2) => LatticeSystem::Hexagonal,
             (HallCenteringType::R, 3, true, 1 | 2) => LatticeSystem::Hexagonal,
             (_, 6, _, _) => LatticeSystem::Hexagonal,
-            (_, 2 | 3 | 4, true, 3 | 4) => LatticeSystem::Cubic,
+            (_, 2..=4, true, 3 | 4) => LatticeSystem::Cubic,
             (a, b, c, d) => {
                 dbg!(a, b, c, d);
                 panic!("Uh oh!")
@@ -146,9 +147,9 @@ impl HallGroupSymbol {
         }
 
         println!("{lat_type:?} {:?}", self.centering);
-        for gen in &linear_generators {
-            // println!("gen: {}\n{}", gen, gen.to_iso(false));
-        }
+        // for gen in &linear_generators {
+        //     println!("gen: {}\n{}", gen, gen.to_iso(false));
+        // }
 
         // dbg!(&linear_generators);
         SpaceGroupSetting::from_lattice_and_ops(lat_type, self.centering, linear_generators)

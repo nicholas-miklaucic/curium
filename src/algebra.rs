@@ -58,7 +58,7 @@ pub trait Group<E: GroupElement> {
         elements: T,
         test_element: &'a E,
     ) -> bool {
-        elements.into_iter().any(|el| self.equiv(&el, test_element))
+        elements.into_iter().any(|el| self.equiv(el, test_element))
     }
 
     /// Whether an element is the identity.
@@ -202,13 +202,10 @@ mod tests {
             let grp = ZAddMod(n);
             let mut els = grp.elements();
             els.sort();
-            assert_eq!(els, (0..n).into_iter().collect::<Vec<usize>>());
+            assert_eq!(els, (0..n).collect::<Vec<usize>>());
             assert_eq!(
                 els,
-                (n..n + n)
-                    .into_iter()
-                    .map(|i| grp.residue(&i))
-                    .collect::<Vec<usize>>()
+                (n..n + n).map(|i| grp.residue(&i)).collect::<Vec<usize>>()
             );
         }
     }

@@ -15,8 +15,8 @@ use crate::hall::{
     HallAxisSymbol, HallCenteringType, HallGroupSymbol, HallOpSymbol, HallTranslationSymbol,
     RotationGroup,
 };
+use crate::hermann_mauguin::{FullHMSymbolUnit, PartialSymmOp, RotOrder};
 use crate::lattice::CenteringType;
-use crate::spacegroupdata::{FullHMSymbolUnit, PartialSymmOp, RotOrder};
 use crate::symmop::{RotationDirectness, ScrewOrder};
 
 use nom::{character::complete::multispace0, sequence::delimited};
@@ -193,7 +193,7 @@ pub fn hm_unit(input: &str) -> IResult<&str, FullHMSymbolUnit> {
 pub fn double_hm_op(input: &str) -> IResult<&str, FullHMSymbolUnit> {
     let (o, (op1, op2)) = separated_pair(alt((hm_screw, hm_rot)), ws(slash), hm_reflection)(input)?;
 
-    if !(!op1.is_reflection() && op2.is_reflection()) {
+    if op1.is_reflection() || !op2.is_reflection() {
         fail(input)
     } else {
         let mut full = FullHMSymbolUnit::default();

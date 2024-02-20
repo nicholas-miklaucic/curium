@@ -317,12 +317,8 @@ impl RenderDoc for SimpleRenderDoc {
         self.render_block(base);
         if self.config.unicode {
             // check if all of the subscripts can be done in Unicode
-            let sub_chars: Option<Vec<Block>> = ASCII
-                .render_to_string(sub)
-                .chars()
-                .into_iter()
-                .map(sub_digit)
-                .collect();
+            let sub_chars: Option<Vec<Block>> =
+                ASCII.render_to_string(sub).chars().map(sub_digit).collect();
 
             if let Some(sub_chars) = sub_chars {
                 self.render_blocks(&sub_chars);
@@ -332,7 +328,7 @@ impl RenderDoc for SimpleRenderDoc {
 
         // if we got here, either fancy subscripts failed or we aren't even trying
 
-        self.render_block(&Block::new_text("_".into()));
+        self.render_block(&Block::new_text("_"));
         self.render_block(sub);
 
         self
@@ -345,7 +341,6 @@ impl RenderDoc for SimpleRenderDoc {
             let super_chars: Option<Vec<Block>> = ASCII
                 .render_to_string(super_)
                 .chars()
-                .into_iter()
                 .map(super_digit)
                 .collect();
 
@@ -357,7 +352,7 @@ impl RenderDoc for SimpleRenderDoc {
 
         // if we got here, either fancy subscripts failed or we aren't even trying
 
-        self.render_block(&Block::new_text("^".into()));
+        self.render_block(&Block::new_text("^"));
         self.render_block(super_);
 
         self
@@ -377,7 +372,7 @@ impl RenderBlocks for Block {
 
 impl<T: RenderBlocks> RenderBlocks for Vec<T> {
     fn components(&self) -> Vec<Block> {
-        self.into_iter().flat_map(|c| c.components()).collect()
+        self.iter().flat_map(|c| c.components()).collect()
     }
 }
 

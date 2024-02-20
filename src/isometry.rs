@@ -185,8 +185,7 @@ impl std::fmt::Display for Isometry {
 }
 
 fn frac_to_md(f: Frac) -> String {
-    let f = ITA.render_to_string(&f).replace('⁄', "\u{0332}\n");
-    f
+    ITA.render_to_string(&f).replace('⁄', "\u{0332}\n")
 }
 
 impl Isometry {
@@ -218,7 +217,7 @@ impl Isometry {
             );
         }
         style.set_lines_vertical(lines);
-        format!("\n{}\n", table.with(style).to_string())
+        format!("\n{}\n", table.with(style))
     }
 }
 
@@ -345,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_ascii_display() {
-        for op_str in vec!["-y+3/4, -x+1/4, z+1/4", "x-y+3/4, -2x+1/4, -x+z"] {
+        for op_str in ["-y+3/4, -x+1/4, z+1/4", "x-y+3/4, -2x+1/4, -x+z"] {
             let iso = Isometry::from_str(op_str).unwrap();
             let iso_str = ASCII.render_to_string(&iso);
             assert_eq!(iso_str, op_str);

@@ -17,8 +17,8 @@ use thiserror::Error;
 
 use crate::algebra::GroupElement;
 use crate::fract::FracError;
+use crate::hermann_mauguin::PartialSymmOp;
 use crate::markup::{Block, RenderBlocks, ITA, UNICODE};
-use crate::spacegroupdata::PartialSymmOp;
 use crate::symbols::{LPAREN, SPACE, SUP_MINUS, SUP_PLUS, TAB};
 use crate::{
     frac,
@@ -143,7 +143,7 @@ impl Direction {
             frac!(1), frac!(2), frac!(0);
             frac!(0), frac!(0), frac!(1)
         ];
-        Direction::new(m * self.v.map(|i| Frac::from(i)))
+        Direction::new(m * self.v.map(Frac::from))
     }
 
     /// Converts to hexagonal Miller indices.
@@ -153,14 +153,14 @@ impl Direction {
             frac!(-1/3), frac!(2/3), frac!(0);
             frac!(0), frac!(0), frac!(1)
         ];
-        Direction::new(m * self.v.map(|i| Frac::from(i)))
+        Direction::new(m * self.v.map(Frac::from))
     }
 
     /// If needed, orients to conform to ITA conventions. Use only when forward and backward are
     /// equivalent.
     pub fn conventional_orientation(&self) -> Self {
         if self.is_conventionally_oriented() {
-            self.clone()
+            *self
         } else {
             self.inv()
         }
@@ -634,7 +634,7 @@ impl SimpleRotation {
         let m = if self.kind.as_frac().is_negative() {
             let mut new_m = Matrix3::<Frac>::identity();
             for _ in 0..(self.kind.order() - 1) {
-                new_m = new_m * m;
+                new_m *= m;
             }
             new_m
         } else {
@@ -656,7 +656,7 @@ impl SimpleRotation {
             f0, f0, fm1, f0;
             f0, f0, f0, f1;
         ];
-        let m = if do_inv {
+        if do_inv {
             let mut v = origin.coords.to_homogeneous();
             v[(3, 0)] = f1;
             // println!(
@@ -670,9 +670,7 @@ impl SimpleRotation {
             shift * inv_mat * m * shift_inv
         } else {
             shift * m * shift_inv
-        };
-
-        m
+        }
     }
 }
 
@@ -857,18 +855,12 @@ impl SymmetryElement {
             }
             SymmetryElement::Plane(plane) => {
                 let (v1, v2) = plane.basis_vectors();
-                let (a1, _f1) = v1
-                    .iter()
-                    .enumerate()
-                    .filter(|(_i, e)| !e.is_zero())
-                    .next()
-                    .unwrap();
+                let (a1, _f1) = v1.iter().enumerate().find(|(_i, e)| !e.is_zero()).unwrap();
 
                 let (a2, _f2) = v2
                     .iter()
                     .enumerate()
-                    .filter(|(i, e)| i != &a1 && !e.is_zero())
-                    .next()
+                    .find(|(i, e)| i != &a1 && !e.is_zero())
                     .unwrap();
 
                 aff.fixed_view_mut::<3, 1>(0, a1)
@@ -911,10 +903,9 @@ impl SymmOp {
             (true, true) => Self::Rotation(rot),
             (false, true) => Self::Rotoinversion(rot),
             (proper, false) => {
-                let screw_order = axis.dir.compute_scale(tau).expect(&format!(
-                    "Bad screw translation {} for dir {}",
-                    tau, axis.dir
-                ));
+                let screw_order = axis.dir.compute_scale(tau).unwrap_or_else(|| {
+                    panic!("Bad screw translation {} for dir {}", tau, axis.dir)
+                });
                 // let screw_order = screw_scale * Frac::from(kind.order());
                 // let screw_order = if screw_order.numerator % Frac::DENOM != 0 {
                 //     dbg!(screw_order, axis, tau, screw_scale, kind, is_proper);
@@ -1103,14 +1094,12 @@ impl SymmOp {
     pub fn to_iso(&self, is_hex: bool) -> Isometry {
         match &self {
             SymmOp::Identity => Isometry::identity(),
-            SymmOp::Inversion(tau) => {
-                return Isometry::new_rot_tau(
-                    Matrix3::identity().scale(frac!(-1)),
-                    tau.coords.scale(frac!(2)),
-                )
-            }
+            SymmOp::Inversion(tau) => Isometry::new_rot_tau(
+                Matrix3::identity().scale(frac!(-1)),
+                tau.coords.scale(frac!(2)),
+            ),
             SymmOp::Translation(tau) => {
-                return Isometry::new_rot_tau(Matrix3::identity(), tau.clone_owned())
+                Isometry::new_rot_tau(Matrix3::identity(), tau.clone_owned())
             }
             SymmOp::Rotation(rot) => Isometry::new_affine(rot.rot_matrix(false, is_hex)),
             SymmOp::Rotoinversion(rot) => Isometry::new_affine(rot.rot_matrix(true, is_hex)),
@@ -1500,21 +1489,19 @@ impl SymmOp {
                         // center[sol_dim + 1] = aug[(row, 6)] / aug[(row, sol_dim)];
                         sol = aug.fixed_view::<1, 3>(row, 0).clone_owned().transpose();
                     }
-                } else {
-                    if aug
-                        .fixed_view::<1, 3>(row, 3)
-                        .transpose()
-                        .dot(&sol)
-                        .is_zero()
-                    {
-                        // part of kernel
-                        // if this fails, the system has no solutions and we goofed
-                        assert!(aug[(row, 6)].is_zero());
-                        // add basis vector to kernel basis
-                        kernel_basis.push(aug.fixed_view::<1, 3>(row, 3).transpose());
-                    } else if !sol.is_zero() {
-                        do_cross = true;
-                    }
+                } else if aug
+                    .fixed_view::<1, 3>(row, 3)
+                    .transpose()
+                    .dot(&sol)
+                    .is_zero()
+                {
+                    // part of kernel
+                    // if this fails, the system has no solutions and we goofed
+                    assert!(aug[(row, 6)].is_zero());
+                    // add basis vector to kernel basis
+                    kernel_basis.push(aug.fixed_view::<1, 3>(row, 3).transpose());
+                } else if !sol.is_zero() {
+                    do_cross = true;
                 }
             }
 
@@ -1580,7 +1567,7 @@ mod tests {
 
     use approx::assert_ulps_eq;
 
-    use crate::{markup::ASCII, spacegroupdata::PartialSymmOp};
+    use crate::{hermann_mauguin::PartialSymmOp, markup::ASCII};
 
     use super::*;
 

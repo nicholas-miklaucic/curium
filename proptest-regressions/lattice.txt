@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc bbe99ff837554c3e7f85a940c371064af3862b1f6c34a4dd2b345cd8ef565ac6 # shrinks to lat = aP
+cc 24f53b0302e738dc04abcd60b4f6fb82939b2553b339dcf98d474b245437478a # shrinks to fam = Tetragonal, cent = SettingDependent

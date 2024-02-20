@@ -15,38 +15,12 @@ use crate::{
     fract::Frac,
     group_classes::CrystalSystem,
     hall::HallCenteringType,
+    hermann_mauguin::{FullHMSymbolUnit, PartialSymmOp},
     lattice::{CenteringType, LatticeSystem},
     markup::{Block, RenderBlocks, ITA},
     symbols::{A_GLIDE, B_GLIDE, C_GLIDE, D_GLIDE, E_GLIDE, MIRROR, N_GLIDE},
     symmop::{Direction, Plane, RotationAxis, RotationKind, ScrewOrder, SymmOp},
 };
-
-/// The short Hermann-Mauguin symbols in order, represented using ASCII, no underscores for screws,
-/// and with hexagonal axes for the rhombohedral groups.
-pub const SPACE_GROUP_SYMBOLS: [&'static str; 230] = [
-    "P1", "P-1", "P2", "P21", "C2", "Pm", "Pc", "Cm", "Cc", "P2/m", "P21/m", "C2/m", "P2/c",
-    "P21/c", "C2/c", "P222", "P2221", "P21212", "P212121", "C2221", "C222", "F222", "I222",
-    "I212121", "Pmm2", "Pmc21", "Pcc2", "Pma2", "Pca21", "Pnc2", "Pmn21", "Pba2", "Pna21", "Pnn2",
-    "Cmm2", "Cmc21", "Ccc2", "Amm2", "Aem2", "Ama2", "Aea2", "Fmm2", "Fdd2", "Imm2", "Iba2",
-    "Ima2", "Pmmm", "Pnnn", "Pccm", "Pban", "Pmma", "Pnna", "Pmna", "Pcca", "Pbam", "Pccn", "Pbcm",
-    "Pnnm", "Pmmn", "Pbcn", "Pbca", "Pnma", "Cmcm", "Cmce", "Cmmm", "Cccm", "Cmme", "Ccce", "Fmmm",
-    "Fddd", "Immm", "Ibam", "Ibca", "Imma", "P4", "P41", "P42", "P43", "I4", "I41", "P-4", "I-4",
-    "P4/m", "P42/m", "P4/n", "P42/n", "I4/m", "I41/a", "P422", "P4212", "P4122", "P41212", "P4222",
-    "P42212", "P4322", "P43212", "I422", "I4122", "P4mm", "P4bm", "P42cm", "P42nm", "P4cc", "P4nc",
-    "P42mc", "P42bc", "I4mm", "I4cm", "I41md", "I41cd", "P-42m", "P-42c", "P-421m", "P-421c",
-    "P-4m2", "P-4c2", "P-4b2", "P-4n2", "I-4m2", "I-4c2", "I-42m", "I-42d", "P4/mmm", "P4/mcc",
-    "P4/nbm", "P4/nnc", "P4/mbm", "P4/mnc", "P4/nmm", "P4/ncc", "P42/mmc", "P42/mcm", "P42/nbc",
-    "P42/nnm", "P42/mbc", "P42/mnm", "P42/nmc", "P42/ncm", "I4/mmm", "I4/mcm", "I41/amd",
-    "I41/acd", "P3", "P31", "P32", "R3", "P-3", "R-3", "P312", "P321", "P3112", "P3121", "P3212",
-    "P3221", "R32", "P3m1", "P31m", "P3c1", "P31c", "R3m", "R3c", "P-31m", "P-31c", "P-3m1",
-    "P-3c1", "R-3m", "R-3c", "P6", "P61", "P65", "P62", "P64", "P63", "P-6", "P6/m", "P63/m",
-    "P622", "P6122", "P6522", "P6222", "P6422", "P6322", "P6mm", "P6cc", "P63cm", "P63mc", "P-6m2",
-    "P-6c2", "P-62m", "P-62c", "P6/mmm", "P6/mcc", "P63/mcm", "P63/mmc", "P23", "F23", "I23",
-    "P213", "I213", "Pm-3", "Pn-3", "Fm-3", "Fd-3", "Im-3", "Pa-3", "Ia-3", "P432", "P4232",
-    "F432", "F4132", "I432", "P4332", "P4132", "I4132", "P-43m", "F-43m", "I-43m", "P-43n",
-    "F-43c", "I-43d", "Pm-3m", "Pn-3n", "Pm-3n", "Pn-3m", "Fm-3m", "Fm-3c", "Fd-3m", "Fd-3c",
-    "Im-3m", "Ia-3d",
-];
 
 /// A space group with a specific choice of symmetry directions. Essentially corresponds to a full
 /// Hall symbol.
@@ -97,20 +71,21 @@ impl Group<SymmOp> for SpaceGroupSetting {
         // quite weird.
         let el_res =
             SymmOp::classify_affine((a.to_iso(is_hex) * b.to_iso(is_hex)).modulo_unit_cell());
-        let el = if el_res.is_err() {
-            println!("{a} * {b} = ");
-            println!(
-                " {} * {} = ",
-                ITA.render_to_string(&a.to_iso(is_hex)),
-                ITA.render_to_string(&b.to_iso(is_hex))
-            );
-            println!(
-                "{}",
-                ITA.render_to_string(&(a.to_iso(is_hex) * b.to_iso(is_hex)).modulo_unit_cell())
-            );
-            panic!();
-        } else {
-            el_res.unwrap()
+        let el = match el_res {
+            Ok(el) => el,
+            Err(_e) => {
+                println!("{a} * {b} = ");
+                println!(
+                    " {} * {} = ",
+                    ITA.render_to_string(&a.to_iso(is_hex)),
+                    ITA.render_to_string(&b.to_iso(is_hex))
+                );
+                println!(
+                    "{}",
+                    ITA.render_to_string(&(a.to_iso(is_hex) * b.to_iso(is_hex)).modulo_unit_cell())
+                );
+                panic!();
+            }
         };
         // println!("el: {el}");
         assert_eq!(SymmOp::classify_affine(el.to_iso(is_hex)).unwrap(), el);
@@ -118,7 +93,7 @@ impl Group<SymmOp> for SpaceGroupSetting {
     }
 
     fn equiv(&self, a: &SymmOp, b: &SymmOp) -> bool {
-        self.residue(&a) == self.residue(&b)
+        self.residue(a) == self.residue(b)
     }
 
     fn residue(&self, el: &SymmOp) -> SymmOp {
@@ -144,347 +119,6 @@ impl FiniteGroup<SymmOp> for SpaceGroupSetting {
 
     fn elements(&self) -> Self::Elements {
         self.symmops.clone()
-    }
-}
-
-/// The order of a rotation, including 1.
-pub type RotOrder = i8;
-
-/// A description of a symmetry operation with an already-known symmetry direction: essentially, one
-/// part of a Hermann-Mauguin symbol. See Table 2.1.2.1.
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum PartialSymmOp {
-    /// A glide with vector a/2, denoted `a`.
-    AGlide,
-    /// A glide with vector b/2, denoted `b`.
-    BGlide,
-    /// A glide with vector c/2, denoted `c`.
-    CGlide,
-    /// Two different operations: glides with vectors 1/2 of the lattice vectors not parallel to the
-    /// normal vector of the plane. Denoted `e`.
-    EGlide,
-    /// A 'diagonal' glide, with a glide vector essentially in as many lattice directions as
-    /// possible given the direction of the plane. Denoted `n`.
-    NGlide,
-    /// A 'diamond' glide, representing two operations with alternating signs roughly akin to 1/4 of
-    /// the n glide. Denoted `d`.
-    DGlide,
-    /// A rotation/screw. The order must be plus or minus 1, 2, 3, 4, or 6. The screw order
-    /// should be between 0 and |k| - 1, where k is the order.
-    GenRotation(RotOrder, ScrewOrder),
-}
-
-impl RenderBlocks for PartialSymmOp {
-    fn components(&self) -> Vec<Block> {
-        match *self {
-            PartialSymmOp::AGlide => vec![A_GLIDE],
-            PartialSymmOp::BGlide => vec![B_GLIDE],
-            PartialSymmOp::CGlide => vec![C_GLIDE],
-            PartialSymmOp::EGlide => vec![E_GLIDE],
-            PartialSymmOp::NGlide => vec![N_GLIDE],
-            PartialSymmOp::DGlide => vec![D_GLIDE],
-            PartialSymmOp::GenRotation(-2, f) if f.is_zero() => vec![MIRROR],
-            PartialSymmOp::GenRotation(r, f) if f.is_zero() => {
-                vec![Block::new_int(r as i64)]
-            }
-            PartialSymmOp::GenRotation(r, s) => {
-                vec![Block::Subscript(
-                    Block::new_int(r as i64).into(),
-                    Block::Blocks((s * frac!(r)).components()).into(),
-                )]
-            }
-        }
-    }
-}
-
-impl PartialSymmOp {
-    /// Converts from a `SymmOp`, returning a `PartialSymmOp` if it exists and `None` otherwise.
-    pub fn try_from_op(op: &SymmOp) -> Option<PartialSymmOp> {
-        match *op {
-            SymmOp::Identity => Some(PartialSymmOp::GenRotation(1, frac!(0))),
-            SymmOp::Inversion(tau) => {
-                if tau == Point3::origin() {
-                    Some(Self::GenRotation(-1, frac!(0)))
-                } else {
-                    None
-                }
-            }
-            SymmOp::Translation(_) => None,
-            SymmOp::Rotation(rot) => {
-                Some(Self::GenRotation(rot.kind.order() as RotOrder, frac!(0)))
-            }
-            SymmOp::Rotoinversion(rot) => {
-                Some(Self::GenRotation(-rot.kind.order() as RotOrder, frac!(0)))
-            }
-            SymmOp::Screw(rot, dir, tau) => Some(Self::GenRotation(
-                (rot.kind.order() as RotOrder) * dir.det_sign() as RotOrder,
-                tau,
-            )),
-            SymmOp::Reflection(_pl) => Some(Self::GenRotation(-2, frac!(0))),
-            SymmOp::Glide(pl, tau) => {
-                // table 2.1.2.1
-                let [a, b, c] = *tau.as_slice() else {
-                    panic!("Tau is 3D")
-                };
-                let f0 = frac!(0);
-                let f14 = frac!(1 / 4);
-                let f12 = frac!(1 / 2);
-
-                if [a, b, c] == [f12, f0, f0] {
-                    Some(Self::AGlide)
-                } else if [a, b, c] == [f0, f12, f0] {
-                    Some(Self::BGlide)
-                } else if [a, b, c] == [f0, f0, f12] {
-                    Some(Self::CGlide)
-                } else {
-                    // the remaining cases have many versions depending on the orientation, so
-                    // it's most useful to work with generic basis vectors in the plane
-                    let (v1, v2) = pl.basis_vectors();
-                    let v_abc = Vector3::new(a, b, c);
-                    if (v1 + v2).scale(f12) == v_abc {
-                        Some(Self::NGlide)
-                    } else if (v1 - v2).scale(f14) == v_abc {
-                        Some(Self::DGlide)
-                    } else if (v1 + v2).scale(f14) == v_abc {
-                        Some(Self::DGlide)
-                    } else if v1.scale(f12) == v_abc {
-                        Some(Self::EGlide)
-                    } else if v2.scale(f12) == v_abc {
-                        Some(Self::EGlide)
-                    } else {
-                        None
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn is_reflection(&self) -> bool {
-        match *self {
-            PartialSymmOp::GenRotation(-2, f) if f.is_zero() => true,
-            PartialSymmOp::GenRotation(_, _) => false,
-            _ => true,
-        }
-    }
-
-    /// Priority under the rules in page 44 of ITA: essentially, higher-priority symbols appear in
-    /// the HM symbol if there's a choice. The rules don't specify this, but clearly higher-order
-    /// rotations take priority over lower-order ones and lower-order screws take priority over
-    /// higher-order ones. Rotoinversions are lower-priority than rotations.
-    pub fn priority(&self) -> i8 {
-        match *self {
-            PartialSymmOp::AGlide => 10,
-            PartialSymmOp::BGlide => 10,
-            PartialSymmOp::CGlide => 10,
-            PartialSymmOp::EGlide => 15,
-            PartialSymmOp::NGlide => 5,
-            PartialSymmOp::DGlide => 10, // not specified?
-            PartialSymmOp::GenRotation(-2, f) if f.is_zero() => 20,
-            PartialSymmOp::GenRotation(1, f) if f.is_zero() => 1,
-            PartialSymmOp::GenRotation(-1, f) if f.is_zero() => -1,
-            PartialSymmOp::GenRotation(r, s) => {
-                if r > 0 {
-                    r * 10 - s.numerator as i8
-                } else {
-                    -r * 10 - s.numerator as i8 - 10
-                }
-            }
-        }
-    }
-
-    /// Combines the two operations. Returns None if the two operations can't be compared. Note
-    /// that, due to the double e-glide, this does not strictly return one of the inputs, because
-    /// max(a, b) = e in some settings.
-    pub fn partial_max(&self, rhs: &Self, use_e_glide: bool) -> Option<Self> {
-        match (self.clone(), rhs.clone(), use_e_glide) {
-            (
-                PartialSymmOp::AGlide | PartialSymmOp::BGlide | PartialSymmOp::CGlide,
-                PartialSymmOp::AGlide | PartialSymmOp::BGlide | PartialSymmOp::CGlide,
-                true,
-            ) => {
-                if self == rhs {
-                    Some(self.clone()) // just the same
-                } else {
-                    // this is the double-glide case
-                    Some(PartialSymmOp::EGlide)
-                }
-            }
-            (lhs, rhs, _) => {
-                lhs.partial_cmp(&rhs)
-                    .map(|o| if o.is_ge() { self.clone() } else { rhs.clone() })
-            }
-        }
-    }
-
-    /// Converts to a full `SymmOp` using the given symmetry direction.
-    pub fn to_symmop_with_dir(&self, dir: Direction) -> SymmOp {
-        match *self {
-            Self::GenRotation(1, f) if f.is_zero() => SymmOp::Identity,
-            Self::GenRotation(-1, f) if f.is_zero() => SymmOp::Inversion(Point3::origin()),
-            Self::GenRotation(r, s) if (r, s) != (-2, frac!(0)) => {
-                let axis = RotationAxis::new(dir.as_vec3(), Point3::origin());
-                let tau = axis.dir.scaled_vec(s);
-                // dbg!(tau);
-                let kind = RotationKind::new(true, r.abs() as usize);
-                SymmOp::new_generalized_rotation(axis, kind, r.is_positive(), tau)
-            }
-            _ => {
-                let f0 = frac!(0);
-                let f14 = frac!(1 / 4);
-                let f12 = frac!(1 / 2);
-
-                // if [a, b, c] == [f12, f0, f0] {
-                //     Some(Self::AGlide)
-                // } else if [a, b, c] == [f0, f12, f0] {
-                //     Some(Self::BGlide)
-                // } else if [a, b, c] == [f0, f0, f12] {
-                //     Some(Self::CGlide)
-                // } else {
-                //     // the remaining cases have many versions depending on the orientation, so
-                //     // it's most useful to work with generic basis vectors in the plane
-                //     let (b1, b2) = pl.basis();
-                //     let v1 = b1.as_vec3();
-                //     let v2 = b2.as_vec3();
-                //     let v_abc = Vector3::new(a, b, c);
-                //     if (v1 + v2).scale(f12) == v_abc {
-                //         Some(Self::NGlide)
-                //     } else if (v1 - v2).scale(f14) == v_abc {
-                //         Some(Self::DGlide)
-                //     } else if (v1 + v2).scale(f14) == v_abc {
-                //         Some(Self::DGlide)
-                //     } else if v1.scale(f12) == v_abc {
-                //         Some(Self::EGlide)
-                //     } else if v2.scale(f12) == v_abc {
-                //         Some(Self::EGlide)
-                //     } else {
-                //         None
-                //     }
-                // }
-                let (d1, d2) = dir.plane_basis();
-                let (v1, v2) = (d1.as_vec3(), d2.as_vec3());
-                let tau = match *self {
-                    PartialSymmOp::AGlide => Vector3::new(f12, f0, f0),
-                    PartialSymmOp::BGlide => Vector3::new(f0, f12, f0),
-                    PartialSymmOp::CGlide => Vector3::new(f0, f0, f12),
-                    // TODO do we need all of the potential operations here? Can a symbol be
-                    // mistakenly excluded because one of its generators was redundant?
-                    PartialSymmOp::EGlide => v1.scale(f12),
-                    PartialSymmOp::NGlide => (v1 + v2).scale(f12),
-                    PartialSymmOp::DGlide => (v1 + v2).scale(f14),
-                    PartialSymmOp::GenRotation(-2, f) if f.is_zero() => Vector3::zero(),
-                    _ => unreachable!(),
-                };
-
-                let plane = Plane::from_basis_and_origin(v1, v2, Point3::origin());
-                SymmOp::new_generalized_reflection(plane, tau)
-            }
-        }
-    }
-
-    /// The order of the rotation, ignoring any screws or inversions.
-    pub fn rot_kind(&self) -> RotOrder {
-        match *self {
-            PartialSymmOp::AGlide
-            | PartialSymmOp::BGlide
-            | PartialSymmOp::CGlide
-            | PartialSymmOp::EGlide
-            | PartialSymmOp::NGlide
-            | PartialSymmOp::DGlide => 2,
-            PartialSymmOp::GenRotation(r, _s) => r.abs(),
-        }
-    }
-}
-
-impl PartialOrd for PartialSymmOp {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.is_reflection() == other.is_reflection() {
-            self.priority().partial_cmp(&other.priority())
-        } else {
-            None
-        }
-    }
-}
-
-/// A full Hermann-Mauguin symbol component, describing the rotation and reflection in a direction.
-/// Examples are `2/m`, `2_1 / n`, `c`, and `2`.
-#[derive(Debug, Default, Clone, Hash, PartialEq, Eq)]
-pub struct FullHMSymbolUnit {
-    /// Rotation component.
-    rotation: Option<PartialSymmOp>,
-    /// Reflection component.
-    reflection: Option<PartialSymmOp>,
-    // TODO remove this
-    // Keeps track of ops, for debugging.
-    // ops: Vec<PartialSymmOp>,
-}
-
-impl FullHMSymbolUnit {
-    /// Updates the symbol to summarize the previous symbol and the new operation.
-    /// - If the new operation is a rotation/reflection and the current symbol has no previous
-    ///   operation of that type, the new operation enters that spot.
-    /// - If the new operation is with an existing operation, then the priority rules described in
-    ///   page 44 of ITA are applied. The 'larger' is chosen, where m > e > a, b, c > n and
-    ///   rotations > screws. Two axial glide planes can combine to form e, the double glide plane.
-    pub fn and(&mut self, op: PartialSymmOp, use_e_glide: bool) {
-        if op.is_reflection() {
-            self.reflection = self.reflection.as_ref().map_or_else(
-                || Some(op.clone()),
-                |r| r.partial_max(&op, use_e_glide).or(Some(op.clone())),
-            );
-        } else {
-            self.rotation = self.rotation.as_ref().map_or_else(
-                || Some(op.clone()),
-                |r| r.partial_max(&op, use_e_glide).or(Some(op.clone())),
-            );
-        }
-        // self.ops.push(op.clone());
-    }
-
-    /// Gets the rotation component, or the reflection, or the identity.
-    pub fn first_op(&self) -> PartialSymmOp {
-        self.rotation
-            .or(self.reflection)
-            .unwrap_or(PartialSymmOp::GenRotation(1, frac!(0)))
-    }
-
-    /// Gets the symmetry operations.
-    pub fn ops(&self) -> Vec<PartialSymmOp> {
-        vec![self.rotation.as_slice(), self.reflection.as_slice()].concat()
-    }
-
-    pub const A: FullHMSymbolUnit = FullHMSymbolUnit {
-        rotation: None,
-        reflection: Some(PartialSymmOp::AGlide),
-    };
-
-    pub const B: FullHMSymbolUnit = FullHMSymbolUnit {
-        rotation: None,
-        reflection: Some(PartialSymmOp::BGlide),
-    };
-
-    pub const C: FullHMSymbolUnit = FullHMSymbolUnit {
-        rotation: None,
-        reflection: Some(PartialSymmOp::CGlide),
-    };
-
-    pub const M: FullHMSymbolUnit = FullHMSymbolUnit {
-        rotation: None,
-        reflection: Some(PartialSymmOp::GenRotation(-2, frac!(0))),
-    };
-}
-
-impl RenderBlocks for FullHMSymbolUnit {
-    fn components(&self) -> Vec<Block> {
-        match (&self.rotation, &self.reflection) {
-            (Some(r1), Some(r2)) => {
-                vec![Block::Fraction(
-                    Block::Blocks(r1.components()).into(),
-                    Block::Blocks(r2.components()).into(),
-                )]
-            }
-            (Some(r), None) | (None, Some(r)) => r.components(),
-            (None, None) => vec![Block::new_int(1)],
-        }
     }
 }
 
@@ -542,10 +176,7 @@ impl SpaceGroupSetting {
 
     pub fn full_hm_symbol(&self) -> (HallCenteringType, Vec<FullHMSymbolUnit>) {
         let dirs = self.lattice_type.all_symm_dirs();
-        let use_e_glide = match self.centering {
-            HallCenteringType::A | HallCenteringType::C => true,
-            _ => false,
-        };
+        let use_e_glide = matches!(self.centering, HallCenteringType::A | HallCenteringType::C);
         let mut syms = vec![];
         for _dir in &dirs {
             syms.push(FullHMSymbolUnit::default());
@@ -554,10 +185,9 @@ impl SpaceGroupSetting {
         for op in self.symmops.clone() {
             let dir1 = op.symmetry_direction();
             let partial_op = PartialSymmOp::try_from_op(&op);
-            for (i, dirlist) in (&dirs).into_iter().enumerate() {
+            for (i, dirlist) in dirs.iter().enumerate() {
                 for dir2 in dirlist {
-                    if let Some(((d1, d2), partial)) = dir1.zip(Some(dir2)).zip(partial_op.clone())
-                    {
+                    if let Some(((d1, d2), partial)) = dir1.zip(Some(dir2)).zip(partial_op) {
                         if d1 == *d2 {
                             syms[i].and(partial, use_e_glide);
                         }
@@ -568,11 +198,9 @@ impl SpaceGroupSetting {
 
         // special cases that don't fit the standard priority rules:
         // P-1 is P-1, not P1: only time -1 is shown
-        if syms.len() == 1 && syms[0].first_op().rot_kind() == 1 {
-            if self.symmops.len() > 1 {
-                // not P1, so must be P-1
-                syms[0].rotation = Some(PartialSymmOp::GenRotation(-1, frac!(0)));
-            }
+        if syms.len() == 1 && syms[0].first_op().rot_kind() == 1 && self.symmops.len() > 1 {
+            // not P1, so must be P-1
+            syms[0].rotation = Some(PartialSymmOp::GenRotation(-1, frac!(0)));
         };
         (self.centering, syms)
     }
@@ -596,7 +224,7 @@ impl SpaceGroupSetting {
             short_syms.retain(|o| o.reflection.is_some() || o.first_op().rot_kind() != 1);
         }
 
-        for i in 0..short_syms.len() {
+        for (i, sym) in short_syms.iter_mut().enumerate() {
             match (self.lattice_type, i) {
                 (
                     LatticeSystem::Monoclinic
@@ -609,8 +237,8 @@ impl SpaceGroupSetting {
                 }
                 _ => {
                     // if a double unit, keep just the reflection
-                    if short_syms[i].rotation.is_some() && short_syms[i].reflection.is_some() {
-                        short_syms[i].rotation = None;
+                    if sym.rotation.is_some() && sym.reflection.is_some() {
+                        sym.rotation = None;
                     }
                 }
             };
@@ -625,7 +253,7 @@ impl RenderBlocks for SpaceGroupSetting {
         let (c, syms) = self.full_hm_symbol();
         let mut comps = c.components();
         for sym in syms {
-            comps.push(Block::new_text(" ".into()));
+            comps.push(Block::new_text(" "));
             comps.extend(sym.components());
         }
         comps
@@ -716,7 +344,7 @@ mod tests {
         );
 
         let t1 = SymmOp::Translation(Vector3::new(frac!(-3 / 2), frac!(1 / 4), frac!(0)));
-        let t2 = &SymmOp::Translation(Vector3::new(frac!(3 / 2), frac!(1 / 4), frac!(4)));
+        let t2 = SymmOp::Translation(Vector3::new(frac!(3 / 2), frac!(1 / 4), frac!(4)));
 
         dbg!(frac!(3 / 2), frac!(3 / 2) % frac!(1));
 
