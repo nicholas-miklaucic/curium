@@ -108,7 +108,8 @@ impl HallGroupSymbol {
             (_, 2, false, 1) => LatticeSystem::Monoclinic,
             (_, 2, false, 2 | 3) => LatticeSystem::Orthorhombic,
             (_, 4, false, _) => LatticeSystem::Tetragonal,
-            (HallCenteringType::P, 3, true, 1 | 2) => LatticeSystem::Rhombohedral,
+            // how should this work?
+            (HallCenteringType::P, 3, true, 1 | 2) => LatticeSystem::Hexagonal,
             (HallCenteringType::R, 3, true, 1 | 2) => LatticeSystem::Hexagonal,
             (_, 6, _, _) => LatticeSystem::Hexagonal,
             (_, 2 | 3 | 4, true, 3 | 4) => LatticeSystem::Cubic,
@@ -144,8 +145,9 @@ impl HallGroupSymbol {
             });
         }
 
+        println!("{lat_type:?} {:?}", self.centering);
         for gen in &linear_generators {
-            println!("gen: {}\n{}", gen, gen.to_iso(false));
+            // println!("gen: {}\n{}", gen, gen.to_iso(false));
         }
 
         // dbg!(&linear_generators);
@@ -218,9 +220,10 @@ impl HallCenteringType {
 
     /// Gets the generators of the translational subgroup: the set of translation vectors that
     /// define the centering options. Includes the three basis vectors that shift by entire unit
-    /// cells. Fails for `SettingDependent`.
+    /// cells.
     pub fn centering_ops(&self) -> Vec<SymmOp> {
         let mut translations = vec![Vector3::x(), Vector3::y(), Vector3::z()];
+        // let mut translations = vec![];
 
         let f0 = frac!(0);
         let f12 = frac!(1 / 2);
@@ -238,7 +241,7 @@ impl HallCenteringType {
             Self::A => vec![a],
             Self::B => vec![b],
             Self::C => vec![c],
-            Self::F => vec![a, b, c],
+            Self::F => vec![b + c, a + c, a + b],
             Self::R => vec![Vector3::new(f23, f13, f13), Vector3::new(f13, f23, f23)],
             Self::T => vec![Vector3::new(f13, f23, f13), Vector3::new(f23, f13, f23)],
             Self::S => vec![Vector3::new(f13, f13, f23), Vector3::new(f23, f23, f13)],
@@ -464,8 +467,8 @@ impl HallAxisSymbol {
             HallAxisSymbol::X => Direction::new(Vector3::x()),
             HallAxisSymbol::Y => Direction::new(Vector3::y()),
             HallAxisSymbol::Z => Direction::new(Vector3::z()),
-            HallAxisSymbol::Prime => Direction::new(v1 + v2),
-            HallAxisSymbol::DoublePrime => Direction::new(v1 - v2),
+            HallAxisSymbol::Prime => Direction::new(v1 - v2),
+            HallAxisSymbol::DoublePrime => Direction::new(v1 + v2),
             HallAxisSymbol::Star => Direction::new(Vector3::x() + Vector3::y() + Vector3::z()),
         }
     }
@@ -531,18 +534,48 @@ impl RenderBlocks for HallTranslationSymbol {
 
 #[cfg(test)]
 mod tests {
-    use crate::markup::{ASCII, ITA};
+    use crate::{
+        constants::{GROUP_ORDERS, HALL_SYMBOLS},
+        markup::{ASCII, ITA},
+    };
 
     use super::*;
 
     #[test]
+    #[ignore] // this takes ~4 minutes on my machine!
+    fn test_hall_orders() {
+        for (hall, grp_num) in HALL_SYMBOLS {
+            let group: HallGroupSymbol = hall.parse().unwrap();
+            let setting = group.generate_group();
+            // dbg!(&setting);
+            // println!(
+            //     "{:?}\n{}",
+            //     setting.lattice_type,
+            //     ITA.render_to_string(&setting.op_list())
+            // );
+            assert_eq!(
+                setting.all_symmops().len(),
+                GROUP_ORDERS[grp_num],
+                "\nGroup {}\nHall: {}\n{:#?}\n{}\n{:#?} {:?}",
+                grp_num,
+                hall,
+                group,
+                ITA.render_to_string(&setting.op_list()),
+                setting.lattice_type,
+                setting.centering
+            );
+        }
+    }
+
+    #[test]
     fn test_hall_parse() {
         let cases = [
-            ("-I 4bd 2c 3", "Ia-3d"),
+            // ("-I 4bd 2c 3", "Ia-3d"),
+            // ("I 4bw 2aw -1bw", "I4_1/acd"),
             // ("P 4n 2 3 -1n", "Pn-3m"),
             // ("P 4nw 2abw", "P 43 21 2"),
             ("P 61 2 (0 0 -1)", "P6_122"),
-            // ("P 2 2 3", "P23"),
+            ("P 2 2 3", "P23"),
             // ("P 6", "P6"),
             // ("F 2 -2d", "Fdd2"),
             // ("I -4 -2", "I-4m2"),

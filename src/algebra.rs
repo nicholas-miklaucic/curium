@@ -60,6 +60,11 @@ pub trait Group<E: GroupElement> {
     ) -> bool {
         elements.into_iter().any(|el| self.equiv(&el, test_element))
     }
+
+    /// Whether an element is the identity.
+    fn is_identity(&self, a: &E) -> bool {
+        self.equiv(a, &self.identity())
+    }
 }
 
 /// A group that is finitely generated.
@@ -84,42 +89,27 @@ pub trait FiniteGroup<E: GroupElement>: FinitelyGeneratedGroup<E> {
     /// - The output elements should adhere to some ordering principle that the default does not
     ///   respect, or there is a simpler potential implementation.
     fn elements(&self) -> Self::Elements;
-}
 
-/// An automated implementation of [`FiniteGroup::elements`] that loops through every generator
-/// until a cycle is found and then combines all potential combinations of elements until closure is
-/// achieved.
-pub fn generate_elements<E: GroupElement, G: FinitelyGeneratedGroup<E>>(group: &G) -> Vec<E> {
-    let gens: Vec<E> = group
-        .generators()
-        .into_iter()
-        .flat_map(|e| [group.inv(&e), e])
-        .collect();
-    let mut elements = vec![group.identity()];
-    let mut closure_achieved = false;
-
-    while !closure_achieved {
-        let el = elements.last().unwrap().clone();
-        closure_achieved = true;
-        for gen in &gens {
-            // get all new elements that can be made by composing the generator
-            // dbg!(&gen, &el);
-            let mut combo = group.compose(&gen, &el);
-            while !group.contains_equiv(&elements, &combo) {
-                elements.push(combo.clone());
-                combo = group.compose(&gen, &combo);
-                closure_achieved = false;
-            }
+    /// Computes the order of an element, the smallest k such that g^k = g. Returns 1 for the
+    /// identity.
+    fn order(&self, g: &E) -> usize {
+        if self.is_identity(g) {
+            return 1;
         }
-    }
 
-    elements
+        let mut k = 1;
+        let mut el = self.compose(g, g);
+        while !self.equiv(&el, g) {
+            k += 1;
+            el = self.compose(&el, g);
+        }
+
+        k
+    }
 }
 
 /// An automated implementation of [`FiniteGroup::elements`] that uses Dimino's algorithm.
-pub fn generate_elements_dimino<E: GroupElement, G: FinitelyGeneratedGroup<E>>(
-    group: &G,
-) -> Vec<E> {
+pub fn generate_elements<E: GroupElement, G: FinitelyGeneratedGroup<E>>(group: &G) -> Vec<E> {
     let gens: Vec<E> = group
         .generators()
         .into_iter()
@@ -221,43 +211,5 @@ mod tests {
                     .collect::<Vec<usize>>()
             );
         }
-    }
-
-    #[test]
-    fn test_dimino() {
-        let grp = HallGroupSymbol::from_str("P 4n 2 3 -1n").unwrap();
-        let sg = grp.generate_group();
-
-        let s1 = generate_elements(&sg);
-        let s2 = generate_elements_dimino(&sg);
-
-        let ops1: Vec<String> = s1
-            .iter()
-            .map(|x| ITA.render_to_string(&x.to_iso(false)))
-            .collect();
-        let ops2: Vec<String> = s2
-            .iter()
-            .map(|x| ITA.render_to_string(&x.to_iso(false)))
-            .collect();
-
-        println!("{}\n---\n{}", ops1.join("\n "), ops2.join("\n "));
-        for s in &s1 {
-            assert_eq!(&SymmOp::classify_affine(s.to_iso(false)).unwrap(), s);
-            assert!(
-                sg.contains_equiv(&s2, s),
-                "{}",
-                ITA.render_to_string(&s.to_iso(false))
-            );
-        }
-        for s in &s2 {
-            assert_eq!(&SymmOp::classify_affine(s.to_iso(false)).unwrap(), s);
-            assert!(
-                sg.contains_equiv(&s1, s),
-                " {}",
-                ITA.render_to_string(&s.to_iso(false))
-            );
-        }
-
-        assert_eq!(s1.len(), s2.len());
     }
 }

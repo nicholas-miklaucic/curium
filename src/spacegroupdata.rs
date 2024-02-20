@@ -10,9 +10,7 @@ use nalgebra::{Point3, Vector3};
 use num_traits::Zero;
 
 use crate::{
-    algebra::{
-        generate_elements, generate_elements_dimino, FiniteGroup, FinitelyGeneratedGroup, Group,
-    },
+    algebra::{generate_elements, FiniteGroup, FinitelyGeneratedGroup, Group},
     frac,
     fract::Frac,
     group_classes::CrystalSystem,
@@ -64,7 +62,7 @@ pub struct SpaceGroupSetting {
     /// complete subgroup in the quotient group of the space group and the translational subgroup:
     /// i.e., when combining operations, the result should be a translated version of another
     /// operation.
-    pub symmops: Vec<SymmOp>, // TODO this needs to properly account for centering type
+    pub symmops: Vec<SymmOp>,
 }
 
 /// Implements symmetry operation composition in the quotient group of the translational subgroup of
@@ -100,16 +98,16 @@ impl Group<SymmOp> for SpaceGroupSetting {
         let el_res =
             SymmOp::classify_affine((a.to_iso(is_hex) * b.to_iso(is_hex)).modulo_unit_cell());
         let el = if el_res.is_err() {
-            // println!("{a} * {b} = ");
-            // println!(
-            //     " {} * {} = ",
-            //     ITA.render_to_string(&a.to_iso(is_hex)),
-            //     ITA.render_to_string(&b.to_iso(is_hex))
-            // );
-            // println!(
-            //     "{}",
-            //     ITA.render_to_string(&(a.to_iso(is_hex) * b.to_iso(is_hex)).modulo_unit_cell())
-            // );
+            println!("{a} * {b} = ");
+            println!(
+                " {} * {} = ",
+                ITA.render_to_string(&a.to_iso(is_hex)),
+                ITA.render_to_string(&b.to_iso(is_hex))
+            );
+            println!(
+                "{}",
+                ITA.render_to_string(&(a.to_iso(is_hex) * b.to_iso(is_hex)).modulo_unit_cell())
+            );
             panic!();
         } else {
             el_res.unwrap()
@@ -132,8 +130,11 @@ impl FinitelyGeneratedGroup<SymmOp> for SpaceGroupSetting {
     type Generators = Vec<SymmOp>;
 
     fn generators(&self) -> Self::Generators {
-        let mut gens = self.centering.centering_ops();
+        let all_translation = self.centering.centering_ops();
+        let (gens, centerings) = all_translation.split_at(3);
+        let mut gens = gens.to_vec();
         gens.extend(self.linear_generators.clone());
+        gens.extend(centerings);
         gens
     }
 }
@@ -293,12 +294,13 @@ impl PartialSymmOp {
 
     /// Combines the two operations. Returns None if the two operations can't be compared. Note
     /// that, due to the double e-glide, this does not strictly return one of the inputs, because
-    /// max(a, b) = e.
-    pub fn partial_max(&self, rhs: &Self) -> Option<Self> {
-        match (self.clone(), rhs.clone()) {
+    /// max(a, b) = e in some settings.
+    pub fn partial_max(&self, rhs: &Self, use_e_glide: bool) -> Option<Self> {
+        match (self.clone(), rhs.clone(), use_e_glide) {
             (
                 PartialSymmOp::AGlide | PartialSymmOp::BGlide | PartialSymmOp::CGlide,
                 PartialSymmOp::AGlide | PartialSymmOp::BGlide | PartialSymmOp::CGlide,
+                true,
             ) => {
                 if self == rhs {
                     Some(self.clone()) // just the same
@@ -307,7 +309,7 @@ impl PartialSymmOp {
                     Some(PartialSymmOp::EGlide)
                 }
             }
-            (lhs, rhs) => {
+            (lhs, rhs, _) => {
                 lhs.partial_cmp(&rhs)
                     .map(|o| if o.is_ge() { self.clone() } else { rhs.clone() })
             }
@@ -423,16 +425,16 @@ impl FullHMSymbolUnit {
     /// - If the new operation is with an existing operation, then the priority rules described in
     ///   page 44 of ITA are applied. The 'larger' is chosen, where m > e > a, b, c > n and
     ///   rotations > screws. Two axial glide planes can combine to form e, the double glide plane.
-    pub fn and(&mut self, op: PartialSymmOp) {
+    pub fn and(&mut self, op: PartialSymmOp, use_e_glide: bool) {
         if op.is_reflection() {
             self.reflection = self.reflection.as_ref().map_or_else(
                 || Some(op.clone()),
-                |r| r.partial_max(&op).or(Some(op.clone())),
+                |r| r.partial_max(&op, use_e_glide).or(Some(op.clone())),
             );
         } else {
             self.rotation = self.rotation.as_ref().map_or_else(
                 || Some(op.clone()),
-                |r| r.partial_max(&op).or(Some(op.clone())),
+                |r| r.partial_max(&op, use_e_glide).or(Some(op.clone())),
             );
         }
         // self.ops.push(op.clone());
@@ -487,6 +489,19 @@ impl RenderBlocks for FullHMSymbolUnit {
 }
 
 impl SpaceGroupSetting {
+    /// Gets all of the `SymmOp`s, including the centering translations.
+    pub fn all_symmops(&self) -> Vec<SymmOp> {
+        let mut ops = self.symmops.clone();
+        for tau in self.centering.centering_ops() {
+            if !self.contains_equiv(&self.symmops, &tau) {
+                for op in &self.symmops {
+                    ops.push(tau.compose(op));
+                }
+            }
+        }
+        ops
+    }
+
     /// Generates a setting from a lattice and list of operations. Generates all operations from the
     /// provided operations. The identity operation is always assumed and does not need to be
     /// included.
@@ -502,14 +517,16 @@ impl SpaceGroupSetting {
             symmops: vec![],
         };
 
-        setting.symmops = generate_elements_dimino(&setting);
+        setting.symmops = generate_elements(&setting);
         setting
     }
 
     pub fn is_hex(&self) -> bool {
+        // TODO this needs to be refactored to support rhombohedral coordinates as well
         self.lattice_type == LatticeSystem::Hexagonal
     }
 
+    /// Formats a list of all of the ops.
     pub fn op_list(&self) -> Vec<Block> {
         self.symmops
             .iter()
@@ -525,6 +542,10 @@ impl SpaceGroupSetting {
 
     pub fn full_hm_symbol(&self) -> (HallCenteringType, Vec<FullHMSymbolUnit>) {
         let dirs = self.lattice_type.all_symm_dirs();
+        let use_e_glide = match self.centering {
+            HallCenteringType::A | HallCenteringType::C => true,
+            _ => false,
+        };
         let mut syms = vec![];
         for _dir in &dirs {
             syms.push(FullHMSymbolUnit::default());
@@ -538,7 +559,7 @@ impl SpaceGroupSetting {
                     if let Some(((d1, d2), partial)) = dir1.zip(Some(dir2)).zip(partial_op.clone())
                     {
                         if d1 == *d2 {
-                            syms[i].and(partial);
+                            syms[i].and(partial, use_e_glide);
                         }
                     }
                 }

@@ -6,6 +6,7 @@
 extern crate uom;
 
 pub mod algebra;
+pub mod constants;
 pub mod element;
 pub mod fract;
 pub mod group_classes;

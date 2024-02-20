@@ -183,7 +183,7 @@ pub fn hm_unit(input: &str) -> IResult<&str, FullHMSymbolUnit> {
         double_hm_op,
         map(hm_partial_op, |p| {
             let mut f = FullHMSymbolUnit::default();
-            f.and(p);
+            f.and(p, false);
             f
         }),
     ))(input)
@@ -197,8 +197,8 @@ pub fn double_hm_op(input: &str) -> IResult<&str, FullHMSymbolUnit> {
         fail(input)
     } else {
         let mut full = FullHMSymbolUnit::default();
-        full.and(op1);
-        full.and(op2);
+        full.and(op1, false);
+        full.and(op2, false);
 
         Ok((o, full))
     }

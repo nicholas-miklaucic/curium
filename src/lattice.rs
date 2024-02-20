@@ -99,7 +99,7 @@ impl LatticeSystem {
         }
     }
 
-    /// Gets all versions of the symmetry directions for Hermann-Mauguin symbols,    
+    /// Gets all versions of the symmetry directions for Hermann-Mauguin symbols,
     /// given in Table 2.1.3.1 of ITA. `None` means 1 or -1 in the symbol: no nontrivial symmetries.
     pub fn all_symm_dirs(&self) -> Vec<Vec<Direction>> {
         // TODO adjust for settings
