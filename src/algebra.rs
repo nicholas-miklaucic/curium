@@ -127,7 +127,7 @@ pub fn generate_elements<E: GroupElement, G: FinitelyGeneratedGroup<E>>(group: &
             for a in n {
                 for g in gens.iter().skip(i) {
                     let ag = group.compose(&a, g);
-                    if !group.contains_equiv(&elements, &ag) {
+                    if !elements.iter().any(|el| group.equiv(el, &ag)) {
                         // G_i * g
                         for el in &d {
                             let ap = group.compose(el, &ag);

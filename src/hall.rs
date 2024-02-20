@@ -542,8 +542,8 @@ mod tests {
 
     use super::*;
 
+    //     #[ignore] // this takes ~4 minutes on my machine!
     #[test]
-    #[ignore] // this takes ~4 minutes on my machine!
     fn test_hall_orders() {
         for (hall, grp_num) in HALL_SYMBOLS {
             let group: HallGroupSymbol = hall.parse().unwrap();

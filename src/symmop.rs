@@ -1,6 +1,7 @@
 //! A symmetry operation in 3D space, considered geometrically. Acts on 3D space as an [`Isometry`],
 //! but specifically considers the subgroup of isometries that occurs in crystal space groups.
 
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::f64::consts::TAU;
 use std::fmt::Display;
@@ -120,17 +121,15 @@ impl Direction {
             if tau_i == full_i && full_i.is_zero() {
                 // this axis could be any scale
                 continue;
-            } else {
-                // dbg!(self, v, tau, full_tau);
-                let new_scale = tau_i / full_i;
-                if scale.is_some_and(|f| f != new_scale) {
-                    // this could be an error in the future, perhaps
-                    // mismatching is not good!
-                    return None;
-                } else {
-                    scale.replace(new_scale);
-                }
             }
+            // dbg!(self, v, tau, full_tau);
+            let new_scale = tau_i / full_i;
+            if scale.is_some_and(|f| f != new_scale) {
+                // this could be an error in the future, perhaps
+                // mismatching is not good!
+                return None;
+            }
+            scale.replace(new_scale);
         }
 
         scale
@@ -278,6 +277,13 @@ impl RotationAxis {
             origin: self.origin.map(|f| f.modulo_one()),
             dir: self.dir,
         }
+    }
+
+    /// Returns whether a point lies on the axis.
+    pub fn contains(&self, point: Point3<Frac>) -> bool {
+        point == self.origin
+            || (Direction::new(point.coords - self.origin.coords).conventional_orientation()
+                == self.dir.conventional_orientation())
     }
 }
 
@@ -1155,26 +1161,99 @@ impl SymmOp {
         SymmOp::classify_affine(self.to_iso(false).inv()).unwrap()
     }
 
-    /// Computes `self * rhs`: the operation of doing `rhs` and then doing `self`.
+    /// Computes `self * rhs`: the operation of doing `rhs` and then doing `self`. Goes through a
+    /// matrix, so is slow.
     pub fn compose(&self, rhs: &Self) -> Self {
         SymmOp::classify_affine(self.to_iso(false) * rhs.to_iso(false)).unwrap()
     }
-}
 
-// impl RenderBlocks for SymmOp {
-//     fn components(&self) -> Vec<Block> {
-//         match self {
-//             SymmOp::Identity => 1.components(),
-//             SymmOp::Inversion(tau) => (-1).components(),
-//             SymmOp::Translation(_) => todo!(),
-//             SymmOp::Rotation(_) => todo!(),
-//             SymmOp::Rotoinversion(_) => todo!(),
-//             SymmOp::Screw(_, _, _) => todo!(),
-//             SymmOp::Reflection(_) => todo!(),
-//             SymmOp::Glide(_, _) => todo!(),
-//         }
-//     }
-// }
+    /// Computes `self * rhs` without the conversion to an isometry.
+    pub fn compose_elegant(&self, rhs: &Self) -> Self {
+        match (*self, *rhs) {
+            (SymmOp::Identity, rhs) => rhs,
+            (lhs, SymmOp::Identity) => lhs,
+            (SymmOp::Inversion(o1), SymmOp::Inversion(o2)) => {
+                SymmOp::Translation((o1 - o2).scale(frac!(2)))
+            }
+            (SymmOp::Inversion(o), SymmOp::Translation(t)) => {
+                SymmOp::Inversion(o - t.scale(frac!(1 / 2)))
+            }
+            (SymmOp::Inversion(o), SymmOp::Rotation(r)) => {
+                if r.axis.contains(o) {
+                    SymmOp::Rotoinversion(SimpleRotation {
+                        axis: RotationAxis {
+                            origin: o,
+                            dir: r.axis.dir,
+                        },
+                        kind: r.kind,
+                    })
+                } else {
+                    self.compose(rhs)
+                }
+            }
+            (SymmOp::Inversion(_), SymmOp::Rotoinversion(_)) => self.compose(rhs),
+            (SymmOp::Inversion(_), SymmOp::Screw(_, _, _)) => self.compose(rhs),
+            (SymmOp::Inversion(_), SymmOp::Reflection(_)) => self.compose(rhs),
+            (SymmOp::Inversion(_), SymmOp::Glide(_, _)) => self.compose(rhs),
+            (SymmOp::Translation(t), SymmOp::Inversion(o)) => {
+                SymmOp::Inversion(o + t.scale(frac!(1 / 2)))
+            }
+            (SymmOp::Translation(t1), SymmOp::Translation(t2)) => SymmOp::Translation(t1 + t2),
+            (SymmOp::Translation(_), SymmOp::Rotation(_)) => self.compose(rhs),
+            (SymmOp::Translation(_), SymmOp::Rotoinversion(_)) => self.compose(rhs),
+            (SymmOp::Translation(_), SymmOp::Screw(_, _, _)) => self.compose(rhs),
+            (SymmOp::Translation(_), SymmOp::Reflection(_)) => self.compose(rhs),
+            (SymmOp::Translation(_), SymmOp::Glide(_, _)) => self.compose(rhs),
+            (SymmOp::Rotation(_), SymmOp::Inversion(_)) => self.compose(rhs),
+            (SymmOp::Rotation(_), SymmOp::Translation(_)) => self.compose(rhs),
+            (SymmOp::Rotation(_), SymmOp::Rotation(_)) => self.compose(rhs),
+            (SymmOp::Rotation(_), SymmOp::Rotoinversion(_)) => self.compose(rhs),
+            (SymmOp::Rotation(_), SymmOp::Screw(_, _, _)) => self.compose(rhs),
+            (SymmOp::Rotation(_), SymmOp::Reflection(_)) => self.compose(rhs),
+            (SymmOp::Rotation(_), SymmOp::Glide(_, _)) => self.compose(rhs),
+            (SymmOp::Rotoinversion(_), SymmOp::Inversion(_)) => self.compose(rhs),
+            (SymmOp::Rotoinversion(_), SymmOp::Translation(_)) => self.compose(rhs),
+            (SymmOp::Rotoinversion(_), SymmOp::Rotation(_)) => self.compose(rhs),
+            (SymmOp::Rotoinversion(_), SymmOp::Rotoinversion(_)) => self.compose(rhs),
+            (SymmOp::Rotoinversion(_), SymmOp::Screw(_, _, _)) => self.compose(rhs),
+            (SymmOp::Rotoinversion(_), SymmOp::Reflection(_)) => self.compose(rhs),
+            (SymmOp::Rotoinversion(_), SymmOp::Glide(_, _)) => self.compose(rhs),
+            (SymmOp::Screw(_, _, _), SymmOp::Inversion(_)) => self.compose(rhs),
+            (SymmOp::Screw(_, _, _), SymmOp::Translation(_)) => self.compose(rhs),
+            (SymmOp::Screw(_, _, _), SymmOp::Rotation(_)) => self.compose(rhs),
+            (SymmOp::Screw(_, _, _), SymmOp::Rotoinversion(_)) => self.compose(rhs),
+            (SymmOp::Screw(_, _, _), SymmOp::Screw(_, _, _)) => self.compose(rhs),
+            (SymmOp::Screw(_, _, _), SymmOp::Reflection(_)) => self.compose(rhs),
+            (SymmOp::Screw(_, _, _), SymmOp::Glide(_, _)) => self.compose(rhs),
+            (SymmOp::Reflection(_), SymmOp::Inversion(_)) => self.compose(rhs),
+            (SymmOp::Reflection(_), SymmOp::Translation(_)) => self.compose(rhs),
+            (SymmOp::Reflection(_), SymmOp::Rotation(_)) => self.compose(rhs),
+            (SymmOp::Reflection(_), SymmOp::Rotoinversion(_)) => self.compose(rhs),
+            (SymmOp::Reflection(_), SymmOp::Screw(_, _, _)) => self.compose(rhs),
+            (SymmOp::Reflection(pl1), SymmOp::Reflection(pl2)) => {
+                if pl1 == pl2 {
+                    SymmOp::Identity
+                } else {
+                    self.compose(rhs)
+                }
+            }
+            (SymmOp::Reflection(_), SymmOp::Glide(_, _)) => self.compose(rhs),
+            (SymmOp::Glide(_, _), SymmOp::Inversion(_)) => self.compose(rhs),
+            (SymmOp::Glide(_, _), SymmOp::Translation(_)) => self.compose(rhs),
+            (SymmOp::Glide(_, _), SymmOp::Rotation(_)) => self.compose(rhs),
+            (SymmOp::Glide(_, _), SymmOp::Rotoinversion(_)) => self.compose(rhs),
+            (SymmOp::Glide(_, _), SymmOp::Screw(_, _, _)) => self.compose(rhs),
+            (SymmOp::Glide(_, _), SymmOp::Reflection(_)) => self.compose(rhs),
+            (SymmOp::Glide(pl1, tau1), SymmOp::Glide(pl2, tau2)) => {
+                if pl1 == pl2 {
+                    SymmOp::Translation(tau1 + tau2)
+                } else {
+                    self.compose(rhs)
+                }
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Error, PartialEq)]
 pub enum SymmOpError {

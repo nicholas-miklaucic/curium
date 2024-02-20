@@ -11,10 +11,11 @@ use num_traits::Zero;
 
 use crate::{
     algebra::{generate_elements, FiniteGroup, FinitelyGeneratedGroup, Group},
+    constants::HALL_SYMBOLS,
     frac,
     fract::Frac,
     group_classes::CrystalSystem,
-    hall::HallCenteringType,
+    hall::{HallCenteringType, HallGroupSymbol},
     hermann_mauguin::{FullHMSymbolUnit, PartialSymmOp},
     lattice::{CenteringType, LatticeSystem},
     markup::{Block, RenderBlocks, ITA},
@@ -134,6 +135,19 @@ impl SpaceGroupSetting {
             }
         }
         ops
+    }
+
+    /// Gets the space group corresponding to the number given. Panics if the
+    /// number is incorrect.
+    pub fn from_number(group_num: usize) -> Self {
+        for (hall, grp) in HALL_SYMBOLS {
+            if grp == group_num {
+                let group: HallGroupSymbol = hall.parse().unwrap();
+                return group.generate_group();
+            }
+        }
+
+        panic!("No group found for {}!", group_num)
     }
 
     /// Generates a setting from a lattice and list of operations. Generates all operations from the
