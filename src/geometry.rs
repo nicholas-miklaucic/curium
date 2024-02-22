@@ -1,6 +1,6 @@
 //! Geometry primitives.
 
-use std::{cmp::Ordering, fmt::Display};
+use std::{cmp::Ordering, fmt::Display, ops::BitAnd};
 
 use nalgebra::{matrix, Matrix3, Matrix4, Point3, Vector3};
 use num_traits::Zero;
@@ -9,8 +9,41 @@ use simba::scalar::SupersetOf;
 use crate::{
     frac,
     fract::{BaseInt, Frac},
-    markup::{Block, RenderBlocks},
+    markup::{Block, RenderBlocks, ITA},
+    symbols::{EMPTY_SET, RR, SUP_3},
 };
+
+/// Returns the number d such that d * v1 = v2, if one exists.
+fn compute_vec_ratio(v1: Vector3<Frac>, v2: Vector3<Frac>) -> Option<Frac> {
+    if v2.is_zero() {
+        return Some(frac!(0));
+    }
+
+    if v1.is_zero() {
+        return None;
+    }
+    let tau = v2;
+    let full_tau = v1;
+    let mut scale = None;
+    for i in 0..3 {
+        let full_i = full_tau[i];
+        let tau_i = tau[i];
+        if tau_i == full_i && full_i.is_zero() {
+            // this axis could be any scale
+            continue;
+        }
+        // dbg!(self, v, tau, full_tau);
+        let new_scale = tau_i / full_i;
+        if scale.is_some_and(|f| f != new_scale) {
+            // this could be an error in the future, perhaps
+            // mismatching is not good!
+            return None;
+        }
+        scale.replace(new_scale);
+    }
+
+    scale
+}
 
 /// A direction, such as in a rotation axis or normal vector.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
@@ -94,30 +127,7 @@ impl Direction {
     }
 
     pub fn compute_scale(&self, v: Vector3<Frac>) -> Option<Frac> {
-        if v.is_zero() {
-            return Some(frac!(0));
-        }
-        let tau = v;
-        let full_tau = self.as_vec3();
-        let mut scale = None;
-        for i in 0..3 {
-            let full_i = full_tau[i];
-            let tau_i = tau[i];
-            if tau_i == full_i && full_i.is_zero() {
-                // this axis could be any scale
-                continue;
-            }
-            // dbg!(self, v, tau, full_tau);
-            let new_scale = tau_i / full_i;
-            if scale.is_some_and(|f| f != new_scale) {
-                // this could be an error in the future, perhaps
-                // mismatching is not good!
-                return None;
-            }
-            scale.replace(new_scale);
-        }
-
-        scale
+        compute_vec_ratio(self.as_vec3(), v)
     }
 
     /// Converts to cartesian Miller indices from the hexagonal version.
@@ -209,6 +219,11 @@ impl Direction {
 
         (e1.conventional_orientation(), e2.conventional_orientation())
     }
+
+    /// Returns whether the two directions are parallel.
+    pub fn is_parallel(&self, other: Direction) -> bool {
+        self.v == other.v || self.v == -other.v
+    }
 }
 
 impl Display for Direction {
@@ -241,6 +256,11 @@ impl RotationAxis {
     /// Direction of axis.
     pub fn dir(&self) -> Direction {
         self.dir
+    }
+
+    /// Direction of axis, as a vector.
+    pub fn dir_vec(&self) -> Vector3<Frac> {
+        self.dir.as_vec3()
     }
 
     /// Origin of axis.
@@ -327,6 +347,13 @@ impl Plane {
         }
     }
 
+    /// Initializes a plane from normal and origin.
+    pub fn from_normal_and_origin(normal: Vector3<Frac>, origin: Point3<Frac>) -> Self {
+        let n = Direction::new(normal);
+        let d = n.as_vec3().dot(&origin.coords);
+        Self { n, d, ori: origin }
+    }
+
     pub fn reflection_matrix(&self) -> Matrix4<f64> {
         // for now, use f64
 
@@ -393,31 +420,49 @@ impl Plane {
         self.n
     }
 
+    /// Gets a normal vector of the plane.
+    pub fn normal_vec(&self) -> Vector3<Frac> {
+        self.n.as_vec3()
+    }
+
     /// Gets a rotation axis through which 180-degree rotation followed by inversion would produce
     /// the same result as reflection through this plane.
     pub fn normal_axis(&self) -> RotationAxis {
         RotationAxis::new_with_dir(self.n, Point3::origin() + self.origin())
     }
+
+    /// Whether the plane contains a point.
+    pub fn contains_pt(&self, pt: Point3<Frac>) -> bool {
+        pt.coords.dot(&self.normal_vec()) == self.d()
+    }
+
+    /// The d such that the plane's equation is n ⋅ v - d = 0.
+    pub fn d(&self) -> Frac {
+        self.origin().dot(&self.normal_vec())
+    }
 }
 
-/// A symmetry element: an affine subspace of R3. This can be either a single point, a line, a
-/// plane, or all of R3.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// A symmetry element: an affine subspace of R3. This can be either the empty set, a single point,
+/// a line, a plane, or all of R3.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SymmetryElement {
-    /// A single point: the inversion center.
+    /// The empty set.
+    Null,
+    /// A single point.
     Point(Point3<Frac>),
-    /// A line: the rotation axis.
+    /// A line.
     Line(RotationAxis),
-    /// A plane: the reflection plane.
+    /// A plane.
     Plane(Plane),
-    /// All of R3, for the identity.
+    /// All of R3.
     Space,
 }
 
 impl SymmetryElement {
     /// Gets an affine matrix that maps (x, y, z, 1) to the symmetry element. The axes are mapped so
     /// that, where not restricted by dependencies, axes map directly to their image. For example,
-    /// the yz-plane is represented as 0, y, z, but the axis 111 is represented by x, x, x.
+    /// the yz-plane is represented as 0, y, z, but the axis 111 is represented by x, x, x. Returns
+    /// the all-zero matrix for `Null`.
     pub fn to_iso(&self) -> Matrix4<Frac> {
         let f0 = frac!(0);
         let f1 = frac!(1);
@@ -428,6 +473,9 @@ impl SymmetryElement {
             f0, f0, f0, f1;
         ];
         match *self {
+            SymmetryElement::Null => {
+                aff.fill_diagonal(f0);
+            }
             SymmetryElement::Point(o) => {
                 aff[(0, 3)] = o.x;
                 aff[(1, 3)] = o.y;
@@ -474,14 +522,210 @@ impl SymmetryElement {
 
         aff
     }
+
+    pub fn contains_pt(&self, pt: Point3<Frac>) -> bool {
+        match *self {
+            SymmetryElement::Null => false,
+            SymmetryElement::Point(p) => p == pt,
+            SymmetryElement::Line(l) => l.contains(pt),
+            SymmetryElement::Plane(pl) => pl.contains_pt(pt),
+            SymmetryElement::Space => true,
+        }
+    }
+
+    pub fn new_point(pt: Point3<Frac>) -> Self {
+        SymmetryElement::Point(pt)
+    }
+
+    pub fn new_line(origin: Point3<Frac>, dir_vec: Vector3<Frac>) -> Self {
+        SymmetryElement::Line(RotationAxis::new(dir_vec, origin))
+    }
+
+    pub fn new_plane(normal: Vector3<Frac>, origin: Point3<Frac>) -> Self {
+        SymmetryElement::Plane(Plane::from_normal_and_origin(normal, origin))
+    }
+
+    pub fn intersection(self, other: Self) -> Self {
+        self & other
+    }
+}
+
+impl BitAnd for SymmetryElement {
+    type Output = SymmetryElement;
+
+    /// Computes the intersection of two symmetry elements.
+    fn bitand(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (SymmetryElement::Null, _) | (_, SymmetryElement::Null) => SymmetryElement::Null,
+            (SymmetryElement::Space, other) | (other, SymmetryElement::Space) => other,
+            (pt @ SymmetryElement::Point(p), other) | (other, pt @ SymmetryElement::Point(p)) => {
+                if other.contains_pt(p) {
+                    pt
+                } else {
+                    SymmetryElement::Null
+                }
+            }
+            (el1 @ SymmetryElement::Line(l1), _el2 @ SymmetryElement::Line(l2)) => {
+                let (o1, v1) = (l1.origin().coords, l1.dir_vec());
+                let (o2, v2) = (l2.origin().coords, l2.dir_vec());
+                // o1 + a v1 = o2 + b v2
+                // a v1 = (o2 - o1) + b v2
+                // a (v1 x v2) = (o2 - o1) x v2   <-- v2 x v2 = 0, so this cancels
+                let v1xv2 = v1.cross(&v2);
+                let doxv2 = (o2 - o1).cross(&v2);
+
+                let parallel = v1xv2.is_zero();
+                let incident = doxv2.is_zero();
+                if parallel && incident {
+                    // lines are equivalent
+                    el1
+                } else if parallel {
+                    // lines are parallel but never coincide
+                    SymmetryElement::Null
+                } else {
+                    // ((o2 - o1) x v2) / (v1 x v2) must be equal for all elements
+
+                    // println!("{o1} + a {v1} = {o2} + b {v2}");
+
+                    match compute_vec_ratio(v1xv2, doxv2) {
+                        Some(scale) => {
+                            // dbg!(scale, v1xv2, doxv2);
+                            SymmetryElement::new_point(Point3::origin() + o1 + v1.scale(scale))
+                        }
+                        None => SymmetryElement::Null,
+                    }
+                }
+            }
+
+            (el1 @ SymmetryElement::Plane(pl1), el2 @ SymmetryElement::Plane(pl2)) => {
+                let parallel = pl1.normal().is_parallel(pl2.normal());
+                let incident = pl1.contains_pt(Point3::origin() + pl2.origin());
+                if parallel && incident {
+                    // same plane
+                    el1
+                } else if parallel {
+                    // never meet, parallel but apart
+                    SymmetryElement::Null
+                } else {
+                    // non-parallel planes always meet at a line with direction n1 x n2
+
+                    // need to find an intersection point: we can find the point on the line made by
+                    // o1 and a basis vector that isn't parallel to the plane.
+                    let (b1, b2) = pl1.basis_vectors();
+                    let basis_vec = if b1.dot(&pl2.normal_vec()).is_zero() {
+                        b2
+                    } else {
+                        b1
+                    };
+
+                    let basis_line = SymmetryElement::new_line(Point3::origin(), basis_vec);
+
+                    if let SymmetryElement::Point(p) = basis_line & el2 {
+                        SymmetryElement::new_line(p, pl1.normal_vec().cross(&pl2.normal_vec()))
+                    } else {
+                        panic!("Line should have intersected: {:?} {:?}", el1, el2);
+                    }
+                }
+            }
+
+            (el1 @ SymmetryElement::Line(l), SymmetryElement::Plane(pl))
+            | (SymmetryElement::Plane(pl), el1 @ SymmetryElement::Line(l)) => {
+                let parallel = l.dir_vec().dot(&pl.normal_vec()).is_zero();
+                let incident = pl.contains_pt(l.origin());
+                if parallel && incident {
+                    // coincide
+                    el1
+                } else if parallel {
+                    // never intersect
+                    SymmetryElement::Null
+                } else {
+                    //
+                    // n * (o + k v) = d
+                    // n * o + k(n * v) = d
+                    // k = (d - n * o) / (n * v)
+                    let o = l.origin();
+                    let v = l.dir_vec();
+                    let n = pl.normal_vec();
+                    let d = pl.d();
+
+                    let k = (d - n.dot(&o.coords)) / n.dot(&v);
+                    let line_origin = o + v.scale(k);
+
+                    SymmetryElement::Point(line_origin)
+                }
+            }
+        }
+    }
 }
 
 impl RenderBlocks for SymmetryElement {
     fn components(&self) -> Vec<Block> {
-        if self == &Self::Space {
-            vec![]
-        } else {
-            self.to_iso().components()
+        match *self {
+            Self::Space => vec![RR, SUP_3],
+            Self::Null => vec![EMPTY_SET],
+            s => s.to_iso().components(),
         }
+    }
+}
+
+impl Display for SymmetryElement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", ITA.render_to_string(self))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nalgebra::vector;
+
+    use super::*;
+
+    #[test]
+    fn test_plane_plane_intersection() {
+        let s1 =
+            SymmetryElement::new_plane(vector![frac!(1), frac!(-1), frac!(0)], Point3::origin());
+
+        let s2 =
+            SymmetryElement::new_plane(vector![frac!(1), frac!(1), frac!(0)], Point3::origin());
+
+        assert_eq!(
+            s1 & s2,
+            SymmetryElement::new_line(Point3::origin(), Vector3::z())
+        );
+    }
+
+    #[test]
+    fn test_line_line_intersection() {
+        let s1 =
+            SymmetryElement::new_line(Point3::origin(), vector![frac!(1), frac!(-1), frac!(0)]);
+
+        let s2 = SymmetryElement::new_line(Point3::origin(), vector![frac!(1), frac!(1), frac!(0)]);
+
+        assert_eq!(s1 & s2, SymmetryElement::new_point(Point3::origin()));
+
+        let pt = Point3::new(frac!(1), frac!(1), frac!(0));
+        let s3 = SymmetryElement::new_line(pt, vector![frac!(0), frac!(0), frac!(1)]);
+
+        assert_eq!(s2 & s3, SymmetryElement::new_point(pt));
+        assert_eq!(s1 & s3, SymmetryElement::Null);
+    }
+
+    #[test]
+    fn test_line_plane_intersection() {
+        let s1 = SymmetryElement::new_line(Point3::new(frac!(0), frac!(1), frac!(1)), Vector3::y());
+        let s2 = SymmetryElement::new_plane(
+            vector![frac!(1), frac!(-1), frac!(0)],
+            Point3::new(frac!(1), frac!(1 / 2), frac!(1)),
+        );
+        assert_eq!(
+            s1 & s2,
+            SymmetryElement::new_point(Point3::new(frac!(0), frac!(-1 / 2), frac!(1)))
+        );
+        let s3 = SymmetryElement::new_plane(
+            vector![frac!(-1), frac!(0), frac!(1)],
+            Point3::new(frac!(-1), frac!(0), frac!(0)),
+        );
+
+        assert_eq!(s1 & s3, s1);
     }
 }

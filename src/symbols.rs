@@ -61,6 +61,11 @@ sym!(SUP_EQUALS, "=", "\u{207C}");
 sym!(SUP_LPAREN, "(", "\u{207D}");
 sym!(SUP_RPAREN, ")", "\u{207E}");
 
+sym!(RR, "R", "\u{211D}");
+sym!(ZZ, "R", "\u{2124}");
+sym!(QQ, "R", "\u{211A}");
+sym!(EMPTY_SET, "{}", "\u{2205}");
+
 // The rules for superscripting and subscripting numbers are a total disaster in Unicode due to
 // reasons. I hope the compiler knows how to make this fast.
 
