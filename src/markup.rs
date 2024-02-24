@@ -285,7 +285,7 @@ impl RenderDoc for SimpleRenderDoc {
             let abs = self.config.render_to_string(block);
             self.write_raw(abs.chars().flat_map(|c| [join_char, c]).collect::<String>())
         } else if let Sign::Positive = sign {
-            self.render_block(block)
+            self.render_blocks(&[SPACE, block.clone()])
         } else {
             self.render_blocks(&[MINUS_SIGN, block.clone()])
         }
@@ -462,7 +462,7 @@ pub const ITA: SimpleRenderConfig = SimpleRenderConfig {
     ita_minus: true,
 };
 
-pub const DISPLAY: SimpleRenderConfig = ITA;
+pub const DISPLAY: SimpleRenderConfig = ASCII;
 
 #[cfg(test)]
 mod tests {

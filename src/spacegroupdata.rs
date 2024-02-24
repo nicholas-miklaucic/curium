@@ -18,6 +18,7 @@ use crate::{
     group_classes::CrystalSystem,
     hall::{HallCenteringType, HallGroupSymbol},
     hermann_mauguin::{FullHMSymbolUnit, PartialSymmOp},
+    isometry::Isometry,
     lattice::{CenteringType, LatticeSystem},
     markup::{Block, RenderBlocks, ITA},
     symbols::{A_GLIDE, B_GLIDE, C_GLIDE, D_GLIDE, E_GLIDE, LPAREN, MIRROR, N_GLIDE, RPAREN},
@@ -212,6 +213,15 @@ impl SpaceGroupSetting {
     }
 
     /// Formats a list of all of the ops, giving both the Jones notation and the geometric meaning.
+    /// Gets all of the isometries in the space group.
+    pub fn op_isometries(&self) -> Vec<Isometry> {
+        self.all_symmops()
+            .iter()
+            .map(|s| s.to_iso(self.is_hex()))
+            .collect()
+    }
+
+    /// Formats a list of all of the ops.
     pub fn op_list(&self) -> Vec<Block> {
         self.symmops
             .iter()

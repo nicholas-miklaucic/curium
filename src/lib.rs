@@ -21,6 +21,7 @@ pub mod spacegroupdata;
 pub mod symbols;
 pub mod symmop;
 pub mod units;
+pub mod voronoi;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right

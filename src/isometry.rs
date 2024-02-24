@@ -3,7 +3,7 @@
 use std::{ops::Mul, str::FromStr};
 
 use nalgebra::{
-    DMatrix, DMatrixView, Dim, Matrix, Matrix3, Matrix3x4, Matrix4, OMatrix, RawStorage,
+    DMatrix, DMatrixView, Dim, Matrix, Matrix3, Matrix3x4, Matrix4, OMatrix, Point3, RawStorage,
     RowVector4, Translation3, Vector3,
 };
 use num_traits::{Signed, Zero};
@@ -101,6 +101,11 @@ impl Isometry {
     /// Modulo the unit cell: keeps the translation vector within bounds.
     pub fn modulo_unit_cell(&self) -> Self {
         Self::new_rot_tau(self.rot(), self.tau().map(|f| f.modulo_one()))
+    }
+
+    /// Applies the isometry to a point.
+    pub fn transform(&self, pt: &Point3<Frac>) -> Point3<Frac> {
+        self.m.transform_point(pt)
     }
 }
 

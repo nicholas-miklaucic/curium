@@ -803,6 +803,11 @@ impl SymmOp {
             }
         }
     }
+
+    /// Transforms a point.
+    pub fn transform(&self, pt: &Point3<Frac>, is_hex: bool) -> Point3<Frac> {
+        self.to_iso(is_hex).transform(&pt)
+    }
 }
 
 #[derive(Debug, Clone, Error, PartialEq)]

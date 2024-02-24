@@ -347,11 +347,25 @@ impl Plane {
         }
     }
 
-    /// Initializes a plane from normal and origin.
-    pub fn from_normal_and_origin(normal: Vector3<Frac>, origin: Point3<Frac>) -> Self {
-        let n = Direction::new(normal);
-        let d = n.as_vec3().dot(&origin.coords);
-        Self { n, d, ori: origin }
+    /// Constructs a plane from a point through it and a normal vector.
+    pub fn from_point_and_normal(pt: Point3<Frac>, normal: Vector3<Frac>) -> Self {
+        Self {
+            n: Direction::new(normal),
+            d: normal.dot(&pt.coords),
+            ori: pt,
+        }
+    }
+
+    /// Constructs the plane of points equidistant from the two inputs: the perpendicular bisector
+    /// in 3D. Returns `None` if the two points are identical.
+    pub fn from_opposite_points(p1: &Point3<Frac>, p2: &Point3<Frac>) -> Option<Self> {
+        if p1 == p2 {
+            None
+        } else {
+            let normal = (p1.coords - p2.coords) * frac!(24);
+            let mid = (p1.coords + p2.coords).scale(frac!(1 / 2));
+            Some(Self::from_point_and_normal(mid.into(), normal))
+        }
     }
 
     pub fn reflection_matrix(&self) -> Matrix4<f64> {

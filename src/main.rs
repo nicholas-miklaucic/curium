@@ -2,10 +2,13 @@
 use curium::{
     constants::{GROUP_ORDERS, HALL_SYMBOLS},
     hall::HallGroupSymbol,
-    markup::ITA,
+    markup::{Block, DISPLAY, ITA},
+    spacegroupdata::SpaceGroupSetting,
+    voronoi::{dv_cell, find_suitable_origin},
 };
 
-fn main() {
+#[allow(dead_code)]
+fn run_groups() {
     // coz::scope!("main");
     for (hall, grp_num) in HALL_SYMBOLS {
         let group: HallGroupSymbol = hall.parse().unwrap();
@@ -27,6 +30,18 @@ fn main() {
             setting.lattice_type,
             setting.centering
         );
-        coz::progress!();
+    }
+}
+
+fn main() {
+    let setting = SpaceGroupSetting::from_number(220);
+    println!("{}\n", DISPLAY.render_to_string(&setting.op_list()));
+
+    let origin = find_suitable_origin(&setting);
+    println!("Origin: {}", DISPLAY.render_to_string(&origin));
+
+    let verts = dv_cell(&setting, origin);
+    for (pt, _ops) in &verts {
+        println!("{:>15}", DISPLAY.render_to_string(pt));
     }
 }
