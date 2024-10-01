@@ -3,10 +3,9 @@
 
 ## 🦀💎 Crystal structure and symmetry for humans 💎🦀
 
-**Disclaimer: this is still very much a work in progress. Large breaking changes may come without
-notice!**
+Curium is a library for working with crystal informatics in Rust. I may implement a larger set of functionality later, but for now it provides a complete description of space groups and symmetry operations, useful for quickly generating space group tables or computing various symmetry-related geometric quantities.
 
-Curium (or, at least, what I hope Curium will be soon!) has two goals:
+The library has two major goals:
 
 - 🔥 Blazing speed. Right now, a large amount of performance-critical calculation—file I/O, distance
   checks, generating space group operations, enumerating Wyckoff positions—is done with painfully
@@ -27,7 +26,7 @@ symmetry operations. Comparing with `SymmOp`, the `pymatgen` equivalent:
 
 - 🔥 Curium can store symmetry operations compactly: due to more granular numeric types and
   sophisticated mathematical representations, a Curium `SymmOp` is about 10x smaller than the
-  equivalent `pymatgen` `SymmOp`.
+  equivalent `pymatgen` `SymmOp` in memory.
 - 🔥 Curium avoids using floating-point arithmetic to represent symmetry operations. This means a
   single Curium `SymmOp` is actually more like 2 Python numbers, because space isn't wasted storing
   decimal places that aren't even correct in the first place.
@@ -39,33 +38,6 @@ symmetry operations. Comparing with `SymmOp`, the `pymatgen` equivalent:
   which can create challenging bugs. If you want to know if two operations are equal, just compare
   them directly!
 
-
-
-## Roadmap
-
-### Rust
-
-Planned functionality:
-- 🟨 Symmetry operations
-- ❌ Composition
-- ❌ Species
-- ❌ Element
-- ❌ Lattice
-- ❌ CIF parsing
-- ❌ Space groups
-- ❌ Wyckoff positions
-- ❌ PeriodicSite equivalent
-- ❌ Structure
-
-### Python
-As the Rust side of things nears MVP status, a Python wrapper library is planned.
-
-The Python library will have some Python interop functionality that's not planned for the Rust code
-base:
-
-- Pandas extensions so you can operate on `DataFrame`s containing Curium types easily
-- Conversion to/from pymatgen, pyxtal, gemmi, ase, etc.
-- Visualization tools!
 ## Contributing
 
 ✨ Contributions are always welcome! ✨
